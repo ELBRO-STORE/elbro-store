@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MOVIEZONE – Trending Movies, Posters &amp; Genres</title>
+<meta name="description" content="MOVIEZONE: browse the trending movie list, search by title and filter by genre – action, thriller, horror, sci-fi, drama, fantasy and animation.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MOVIEZONE – Trending Movies">
+<meta property="og:description" content="Browse trending movies, search by title and filter by genre.">
+<meta property="og:site_name" content="MOVIEZONE">
+<meta name="theme-color" content="#10161d">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="logo" href="#top" aria-label="MOVIEZONE home">MOVIE<span>ZONE</span></a>
+    <button class="burger" id="burger" aria-label="Menu" aria-expanded="false" aria-controls="nav"><i></i><i></i><i></i></button>
+    <nav id="nav" class="nav" aria-label="Main">
+      <a href="#trending">MOVIES</a>
+      <a href="#trending">TRENDING</a>
+      <a href="#genres">GENRES</a>
+      <a href="#search" id="navSearch">SEARCH</a>
+    </nav>
+    <form class="search" role="search" onsubmit="return false">
+      <input id="search" type="search" placeholder="Search movies…" aria-label="Search movies by title" autocomplete="off">
+    </form>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero" id="hero" aria-label="Featured movie"></section>
+
+  <section class="wrap" id="genres" aria-label="Genres">
+    <div class="filters" id="filters" role="tablist"></div>
+  </section>
+
+  <section class="wrap" id="trending" aria-labelledby="trendTitle">
+    <h2 id="trendTitle" class="section-title">🔥 TRENDING NOW</h2>
+    <div class="grid" id="grid"></div>
+    <p class="empty" id="empty" hidden>No movies found</p>
+  </section>
+</main>
+
+<footer class="site-footer"><div class="wrap">© MOVIEZONE · Movie titles and posters belong to their respective owners.</div></footer>
+
+<script src="config.js"></script>
+<script src="movies.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
