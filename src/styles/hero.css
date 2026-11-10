@@ -1,0 +1,515 @@
+/* ELBRO STORE - 3D Hero Styles
+   Preserved from original elbro-hero.html with minimal modifications */
+
+#elbro-hero {
+  --mx: 0;
+  --my: 0;
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  isolation: isolate;
+  font-family: 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+  color: #eceff3;
+  background: radial-gradient(ellipse 55% 60% at 50% 42%, #3b4048 0%, #16191d 55%, #060708 100%);
+  perspective: 1400px;
+  perspective-origin: 50% 40%;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#elbro-hero * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+#elbro-hero .eb-stage {
+  position: relative;
+  width: 100%;
+  height: min(100svh, 820px);
+  min-height: 660px;
+}
+
+#elbro-hero .eb-sr {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Sol + Lumière */
+#elbro-hero .eb-floor {
+  position: absolute;
+  left: 50%;
+  bottom: -18%;
+  width: 130%;
+  height: 46%;
+  transform: translateX(-50%) rotateX(72deg);
+  background: radial-gradient(ellipse at 50% 40%, rgba(255,255,255,.2), rgba(255,255,255,0) 65%);
+  pointer-events: none;
+}
+
+#elbro-hero .eb-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,.75) 100%);
+}
+
+/* LOGO */
+#elbro-hero .eb-logo {
+  position: absolute;
+  top: 2.2%;
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%) translate3d(calc(var(--mx)*-10px), calc(var(--my)*-6px), 0);
+  font-weight: 800;
+  font-size: clamp(40px, 7.2vw, 92px);
+  letter-spacing: .34em;
+  padding-left: .34em;
+  line-height: 1;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #ffffff 0%, #b9c0c9 55%, #6b737d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,.25));
+  animation: eb-in-logo .9s cubic-bezier(.2,.8,.2,1) both;
+}
+
+#elbro-hero .eb-logo small {
+  display: block;
+  margin-top: .55em;
+  font-size: clamp(8px, .95vw, 12px);
+  font-weight: 600;
+  letter-spacing: .7em;
+  padding-left: .7em;
+  text-align: center;
+  color: #8d96a1;
+  -webkit-text-fill-color: #8d96a1;
+}
+
+/* SCÈNE 3D */
+#elbro-hero .eb-scene {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform: rotateY(calc(var(--mx)*5deg)) rotateX(calc(var(--my)*-3.5deg));
+  will-change: transform;
+}
+
+#elbro-hero .eb-item {
+  position: absolute;
+  z-index: 2;
+  transform-style: preserve-3d;
+  transform: translate(var(--ox,0), var(--oy,0)) translate3d(calc(var(--mx)*var(--d)*-1px), calc(var(--my)*var(--d)*-1px), var(--z)) rotateY(calc(var(--mx)*var(--r)*1deg));
+  will-change: transform;
+}
+
+#elbro-hero .eb-item.is-active {
+  z-index: 7;
+}
+
+#elbro-hero .eb-float {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: eb-float var(--t, 6s) ease-in-out var(--dl, 0s) infinite;
+}
+
+#elbro-hero .eb-card {
+  all: unset;
+  display: block;
+  position: relative;
+  width: 100%;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: transform .5s cubic-bezier(.2,.8,.2,1), filter .4s;
+  animation: eb-in 1s cubic-bezier(.2,.8,.2,1) var(--en, .2s) both;
+}
+
+#elbro-hero .eb-card:hover,
+#elbro-hero .is-active .eb-card {
+  transform: scale(1.09) rotateZ(-1.5deg);
+}
+
+#elbro-hero .eb-card:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 8px;
+  border-radius: 12px;
+}
+
+#elbro-hero .eb-art {
+  display: block;
+  width: 100%;
+  filter: drop-shadow(0 22px 22px rgba(8,12,18,.38)) drop-shadow(0 4px 6px rgba(8,12,18,.3));
+}
+
+#elbro-hero .eb-art svg,
+#elbro-hero .eb-art .eb-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+#elbro-hero .eb-art .eb-photo {
+  object-fit: contain;
+}
+
+#elbro-hero .eb-shadow {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: -9%;
+  height: 9%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(ellipse, rgba(0,0,0,.75), rgba(0,0,0,0) 70%);
+  transform: translateZ(-1px);
+  animation: eb-shadow var(--t, 6s) ease-in-out var(--dl, 0s) infinite;
+}
+
+#elbro-hero .eb-tag {
+  position: absolute;
+  left: 50%;
+  top: 104%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: .6em;
+  font-size: clamp(9px, .95vw, 12px);
+  font-weight: 700;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+  color: #e8ebef;
+  opacity: .8;
+  transition: opacity .3s, letter-spacing .4s;
+}
+
+#elbro-hero .eb-tag::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: #e8ebef;
+}
+
+#elbro-hero .eb-card:hover .eb-tag,
+#elbro-hero .is-active .eb-tag {
+  opacity: 1;
+  letter-spacing: .38em;
+}
+
+/* CENTRE */
+#elbro-hero .eb-center {
+  left: 50%;
+  top: 54%;
+  --ox: -50%;
+  --oy: -50%;
+  --d: 12;
+  --z: 40px;
+  --r: 4;
+  height: 74%;
+  aspect-ratio: 260/600;
+  z-index: 3;
+}
+
+#elbro-hero .eb-center .eb-card {
+  height: 100%;
+}
+
+#elbro-hero .eb-center .eb-art {
+  height: 100%;
+}
+
+#elbro-hero .eb-center .eb-art svg,
+#elbro-hero .eb-center .eb-art .eb-photo {
+  height: 100%;
+}
+
+#elbro-hero .eb-center .eb-shadow {
+  left: -10%;
+  right: -10%;
+  bottom: -4%;
+  height: 5%;
+}
+
+#elbro-hero .eb-halo {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: min(62vw, 560px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%) translateZ(-30px);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.17), rgba(255,255,255,0) 66%);
+  animation: eb-pulse 7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+#elbro-hero .eb-ring {
+  position: absolute;
+  left: 50%;
+  top: 80%;
+  width: min(40vw, 380px);
+  aspect-ratio: 2.6;
+  transform: translate(-50%, -50%) translateZ(-10px);
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 0 0 14px rgba(255,255,255,.04);
+  pointer-events: none;
+}
+
+/* 4 COINS */
+#elbro-hero .eb-p {
+  width: clamp(120px, 19vw, 260px);
+}
+
+#elbro-hero .eb-tl {
+  left: 4%;
+  top: 13%;
+  --d: 34;
+  --z: 90px;
+  --r: -7;
+  --t: 6.4s;
+  --dl: -.6s;
+  --en: .35s;
+}
+
+#elbro-hero .eb-tr {
+  right: 4.5%;
+  top: 15%;
+  --d: 26;
+  --z: 70px;
+  --r: 7;
+  --t: 7.2s;
+  --dl: -2.2s;
+  --en: .5s;
+  width: clamp(130px, 21vw, 290px);
+}
+
+#elbro-hero .eb-bl {
+  left: 5.5%;
+  bottom: 9%;
+  --d: 30;
+  --z: 80px;
+  --r: -6;
+  --t: 6.8s;
+  --dl: -3.4s;
+  --en: .65s;
+  width: clamp(120px, 19vw, 260px);
+}
+
+#elbro-hero .eb-br {
+  right: 5%;
+  bottom: 10%;
+  --d: 38;
+  --z: 105px;
+  --r: 6;
+  --t: 5.9s;
+  --dl: -1.4s;
+  --en: .8s;
+  width: clamp(130px, 21vw, 290px);
+}
+
+#elbro-hero .eb-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: 100%;
+  aspect-ratio: 1/1;
+  padding: 12px;
+  border: 1px dashed rgba(255,255,255,.3);
+  border-radius: 18px;
+  background: rgba(255,255,255,.035);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  color: rgba(255,255,255,.55);
+}
+
+#elbro-hero .eb-center .eb-ph {
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 90px;
+}
+
+#elbro-hero .eb-art .eb-photo {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+  border-radius: 26px;
+  -webkit-mask-image: radial-gradient(ellipse 74% 74% at 50% 50%, #000 58%, transparent 100%);
+  mask-image: radial-gradient(ellipse 74% 74% at 50% 50%, #000 58%, transparent 100%);
+  filter: contrast(1.06) brightness(.92) saturate(.95);
+}
+
+#elbro-hero .eb-center .eb-art .eb-photo {
+  height: 100%;
+  border-radius: 46% 46% 40% 40% / 14% 14% 8% 8%;
+  -webkit-mask-image: radial-gradient(ellipse 62% 66% at 50% 50%, #000 55%, transparent 100%);
+  mask-image: radial-gradient(ellipse 62% 66% at 50% 50%, #000 55%, transparent 100%);
+}
+
+/* Animations */
+@keyframes eb-float {
+  0%, 100% { transform: translateY(0) rotateZ(0); }
+  50% { transform: translateY(-16px) rotateZ(1.2deg); }
+}
+
+@keyframes eb-shadow {
+  0%, 100% { transform: translateZ(-1px) scale(1); opacity: 1; }
+  50% { transform: translateZ(-1px) scale(.82); opacity: .6; }
+}
+
+@keyframes eb-pulse {
+  0%, 100% { opacity: .85; transform: translate(-50%,-50%) translateZ(-30px) scale(1); }
+  50% { opacity: 1; transform: translate(-50%,-50%) translateZ(-30px) scale(1.06); }
+}
+
+@keyframes eb-in {
+  from { opacity: 0; transform: translateY(34px) scale(.92); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes eb-in-logo {
+  from { opacity: 0; transform: translateX(-50%) translateY(-24px); }
+  to { opacity: 1; transform: translateX(-50%) translate3d(calc(var(--mx)*-10px), calc(var(--my)*-6px), 0); }
+}
+
+/* Reduced Motion */
+#elbro-hero.reduce-motion .eb-float,
+#elbro-hero.reduce-motion .eb-shadow,
+#elbro-hero.reduce-motion .eb-halo,
+#elbro-hero.reduce-motion .eb-card,
+#elbro-hero.reduce-motion .eb-logo {
+  animation: none !important;
+}
+
+#elbro-hero.reduce-motion .eb-scene,
+#elbro-hero.reduce-motion .eb-item {
+  transform: none !important;
+}
+
+#elbro-hero.reduce-motion .eb-item {
+  transform: translate(var(--ox,0), var(--oy,0)) !important;
+}
+
+/* MOBILE */
+@media (max-width: 720px) {
+  #elbro-hero {
+    perspective: 900px;
+  }
+  #elbro-hero .eb-stage {
+    height: min(100svh, 880px);
+    min-height: 640px;
+  }
+  #elbro-hero .eb-logo {
+    top: 2%;
+    font-size: clamp(34px, 11vw, 56px);
+    letter-spacing: .26em;
+    padding-left: .26em;
+  }
+  #elbro-hero .eb-center {
+    top: 55%;
+    height: 63%;
+  }
+  #elbro-hero .eb-p,
+  #elbro-hero .eb-tr,
+  #elbro-hero .eb-br,
+  #elbro-hero .eb-bl {
+    width: 34vw;
+    max-width: 170px;
+  }
+  #elbro-hero .eb-tl { left: 2.5%; top: 15%; }
+  #elbro-hero .eb-tr { right: 2.5%; top: 19%; }
+  #elbro-hero .eb-bl { left: 2.5%; bottom: 11%; }
+  #elbro-hero .eb-br { right: 2.5%; bottom: 9%; }
+  #elbro-hero .eb-tag {
+    font-size: 9px;
+    letter-spacing: .2em;
+    top: 102%;
+  }
+  #elbro-hero .eb-tag::before { width: 12px; }
+  #elbro-hero .eb-halo { width: 110vw; }
+  #elbro-hero .eb-ring { width: 70vw; }
+  #elbro-hero .eb-scene {
+    transform: rotateY(calc(var(--mx)*3deg)) rotateX(calc(var(--my)*-2deg));
+  }
+}
+
+/* BUY NOW Buttons */
+#elbro-hero .eb-buy {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 30px);
+  transform: translateX(-50%) translateZ(2px);
+  z-index: 5;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 0;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 0 1.5em;
+  background: linear-gradient(180deg, #fff, #b9c0c9);
+  color: #0b0d10;
+  font: 800 clamp(9px, .9vw, 11px)/1 'Montserrat', 'Helvetica Neue', Arial, sans-serif;
+  letter-spacing: .22em;
+  box-shadow: 0 8px 18px rgba(0,0,0,.45);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .6em;
+  transition: filter .2s;
+}
+
+#elbro-hero .eb-center .eb-buy {
+  top: calc(100% + 6px);
+}
+
+#elbro-hero .eb-buy:hover {
+  filter: brightness(1.1);
+}
+
+#elbro-hero .eb-buy:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+#elbro-hero .eb-buy:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  #elbro-hero .eb-buy {
+    top: calc(100% + 26px);
+    min-height: 30px;
+    padding: 0 1.1em;
+    letter-spacing: .14em;
+  }
+  #elbro-hero .eb-center .eb-buy {
+    top: calc(100% + 4px);
+  }
+}
+
+/* Slide down animation for mobile menu */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.2s ease-out;
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
