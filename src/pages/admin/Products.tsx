@@ -25,7 +25,7 @@ export function AdminProducts() {
   const [submitting, setSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Form state
+  // Form state - sale_price_cents stored as number (cents) internally
   const [formData, setFormData] = useState({
     category_id: '',
     name: '',
@@ -34,7 +34,7 @@ export function AdminProducts() {
     full_description: '',
     material: '',
     price_cents: 0,
-    sale_price_cents: '',
+    sale_price_cents: 0,
     sku: '',
     featured: false,
     best_seller: false,
@@ -98,7 +98,7 @@ export function AdminProducts() {
   useEffect(() => {
     fetchProducts();
     fetchCategories();
-  }, [currentPage]);
+  }, []);
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = !search ||
@@ -119,7 +119,7 @@ export function AdminProducts() {
       const productData = {
         ...formData,
         price_cents: parseInt(formData.price_cents.toString()),
-        sale_price_cents: formData.sale_price_cents ? parseInt(formData.sale_price_cents.toString()) : undefined,
+        sale_price_cents: formData.sale_price_cents > 0 ? formData.sale_price_cents : undefined,
       };
 
       let product;
@@ -161,7 +161,7 @@ export function AdminProducts() {
       full_description: product.full_description || '',
       material: product.material || '',
       price_cents: product.price_cents,
-      sale_price_cents: product.sale_price_cents || '',
+      sale_price_cents: product.sale_price_cents || 0,
       sku: product.sku,
       featured: product.featured,
       best_seller: product.best_seller,
@@ -213,7 +213,7 @@ export function AdminProducts() {
       full_description: '',
       material: '',
       price_cents: 0,
-      sale_price_cents: '',
+      sale_price_cents: 0,
       sku: '',
       featured: false,
       best_seller: false,
@@ -229,6 +229,16 @@ export function AdminProducts() {
 
   const removeVariant = (index: number) => {
     setVariants(variants.filter((_, i) => i !== index));
+  };
+
+  // Helper to convert cents to MAD for display in input
+  const centsToMad = (cents: number): string => {
+    return cents > 0 ? (cents / 100).toString() : '';
+  };
+
+  // Helper to convert MAD input to cents
+  const madToCents = (mad: string): number => {
+    return mad ? parseInt(mad) * 100 : 0;
   };
 
   return (
@@ -400,8 +410,8 @@ export function AdminProducts() {
               />
               <Input
                 label="Prix (MAD) *"
-                value={formData.price_cents}
-                onChange={(e) => setFormData({ ...formData, price_cents: parseInt(e.target.value) * 100 || 0 })}
+                value={centsToMad(formData.price_cents)}
+                onChange={(e) => setFormData({ ...formData, price_cents: madToCents(e.target.value) })}
                 type="number"
                 step="1"
                 min="0"
@@ -409,8 +419,8 @@ export function AdminProducts() {
               />
               <Input
                 label="Prix promo (MAD)"
-                value={typeof formData.sale_price_cents === 'number' && formData.sale_price_cents > 0 ? formData.sale_price_cents / 100 : ''}
-                onChange={(e) => setFormData({ ...formData, sale_price_cents: e.target.value ? parseInt(e.target.value) * 100 : '' })}
+                value={centsToMad(formData.sale_price_cents)}
+                onChange={(e) => setFormData({ ...formData, sale_price_cents: madToCents(e.target.value) })}
                 type="number"
                 step="1"
                 min="0"

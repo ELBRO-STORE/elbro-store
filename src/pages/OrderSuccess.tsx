@@ -9,7 +9,26 @@ import { openWhatsApp } from '../services/whatsapp';
 
 import type { Order, OrderItem as DbOrderItem } from '../types/database';
 
-interface OrderData extends Omit<Order, 'items'> {}
+interface OrderData {
+  id: string;
+  order_ref: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_city: string;
+  customer_address: string;
+  customer_email: string | null;
+  delivery_instructions: string | null;
+  notes: string | null;
+  subtotal_cents: number;
+  delivery_fee_cents: number;
+  total_cents: number;
+  status: Order['status'];
+  google_sheets_synced: boolean;
+  google_sheets_order_id: string | null;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
 
 export function OrderSuccess() {
   const [searchParams] = useSearchParams();
@@ -47,6 +66,8 @@ export function OrderSuccess() {
         delivery_fee_cents: 0,
         subtotal_cents: 0,
         status: 'NEW',
+        google_sheets_synced: false,
+        google_sheets_order_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });

@@ -1,10 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { Order, OrderItem, CartItem } from '../types/database';
-import type { Database } from '../types/database';
 import { generateOrderRef } from '../lib/utils';
-
-type OrdersTable = Database['public']['Tables']['orders'];
-type OrderItemsTable = Database['public']['Tables']['order_items'];
 
 export interface CreateOrderData {
   customer_name: string;
@@ -101,7 +97,7 @@ export async function getOrder(orderRef: string) {
 }
 
 export async function getOrders(filters?: {
-  status?: string;
+  status?: Order['status'];
   limit?: number;
   offset?: number;
   search?: string;

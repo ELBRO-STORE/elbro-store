@@ -11,7 +11,6 @@ const FREE_DELIVERY_FROM_CENTS = 50000; // 500 MAD
 
 export function Cart() {
   const { state, removeItem, updateQuantity, subtotalCents, itemCount } = useCart();
-  const [showPromo, setShowPromo] = useState(false);
   const [promoCode, setPromoCode] = useState('');
 
   const deliveryFeeCents = subtotalCents >= FREE_DELIVERY_FROM_CENTS ? 0 : DELIVERY_FEE_CENTS;

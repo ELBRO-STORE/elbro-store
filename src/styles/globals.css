@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-elbro-50: #FFFFFF;
+  --color-elbro-100: #F5F3EE;
+  --color-elbro-200: #e5e5e5;
+  --color-elbro-300: #d4d4d4;
+  --color-elbro-400: #929292;
+  --color-elbro-500: #737373;
+  --color-elbro-600: #525252;
+  --color-elbro-700: #404040;
+  --color-elbro-800: #262626;
+  --color-elbro-900: #151515;
+  --color-elbro-950: #080808;
+}
+
+@layer base {
+  * {
+    @apply border-elbro-200;
+  }
+  body {
+    @apply bg-white text-elbro-900;
+  }
+}

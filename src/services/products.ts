@@ -1,11 +1,5 @@
 import { supabase } from '../lib/supabase';
 import type { Product, ProductImage, ProductVariant, Category } from '../types/database';
-import type { Database } from '../types/database';
-
-type ProductsTable = Database['public']['Tables']['products'];
-type ProductImagesTable = Database['public']['Tables']['product_images'];
-type ProductVariantsTable = Database['public']['Tables']['product_variants'];
-type CategoriesTable = Database['public']['Tables']['categories'];
 
 export interface CreateProductData {
   category_id: string;
@@ -161,7 +155,7 @@ export async function createVariant(
 export async function updateVariant(id: string, data: Partial<ProductVariant>) {
   const { data: variant, error } = await supabase
     .from('product_variants')
-    .update(data)
+    .update(data as any)
     .eq('id', id)
     .select()
     .single();
@@ -178,7 +172,7 @@ export async function deleteVariant(id: string) {
 export async function createCategory(data: Omit<Category, 'id' | 'created_at' | 'updated_at'>) {
   const { data: category, error } = await supabase
     .from('categories')
-    .insert(data)
+    .insert(data as any)
     .select()
     .single();
 
@@ -189,7 +183,7 @@ export async function createCategory(data: Omit<Category, 'id' | 'created_at' | 
 export async function updateCategory(id: string, data: Partial<Category>) {
   const { data: category, error } = await supabase
     .from('categories')
-    .update(data)
+    .update(data as any)
     .eq('id', id)
     .select()
     .single();

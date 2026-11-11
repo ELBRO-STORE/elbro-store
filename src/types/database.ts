@@ -1,3 +1,10 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
 export interface CartItem {
   id: string;
   productId: string;
@@ -21,6 +28,7 @@ export interface Category {
   display_order: number;
   created_at: string;
   updated_at: string;
+  [key: string]: unknown;
 }
 
 export interface Product {
@@ -43,6 +51,7 @@ export interface Product {
   category?: Category;
   images?: ProductImage[];
   variants?: ProductVariant[];
+  [key: string]: unknown;
 }
 
 export interface ProductImage {
@@ -53,6 +62,7 @@ export interface ProductImage {
   is_main: boolean;
   display_order: number;
   created_at: string;
+  [key: string]: unknown;
 }
 
 export interface ProductVariant {
@@ -64,6 +74,7 @@ export interface ProductVariant {
   sku: string;
   created_at: string;
   updated_at: string;
+  [key: string]: unknown;
 }
 
 export interface Order {
@@ -86,6 +97,7 @@ export interface Order {
   updated_at: string;
   // Relations
   items?: OrderItem[];
+  [key: string]: unknown;
 }
 
 export type OrderStatus = 'NEW' | 'CONFIRMED' | 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
@@ -105,6 +117,7 @@ export interface OrderItem {
   // Relations
   product?: Product;
   variant?: ProductVariant;
+  [key: string]: unknown;
 }
 
 export interface Profile {
@@ -116,6 +129,7 @@ export interface Profile {
   address: string | null;
   created_at: string;
   updated_at: string;
+  [key: string]: unknown;
 }
 
 export interface AdminUser {
@@ -123,6 +137,7 @@ export interface AdminUser {
   user_id: string;
   role: 'super_admin' | 'admin' | 'manager';
   created_at: string;
+  [key: string]: unknown;
 }
 
 export interface StoreSettings {
@@ -131,6 +146,7 @@ export interface StoreSettings {
   value: string | number | boolean | null;
   description: string | null;
   updated_at: string;
+  [key: string]: unknown;
 }
 
 export interface StoreSettingsMap {
@@ -151,6 +167,9 @@ export interface StoreSettingsMap {
 
 // Database types matching Supabase schema exactly
 // Generated from actual SQL migrations
+// The __InternalSupabase key is required for proper type inference with postgrest-js
+// The structure must match GenericSchema = { Tables, Views, Functions } at the schema level
+// Relationships must be arrays (GenericRelationship[]), not tuples
 export interface Database {
   public: {
     Tables: {
@@ -176,15 +195,13 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'categories_id_fkey';
-            columns: ['id'];
-            isOneToOne: false;
-            referencedRelation: 'profiles';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       products: {
         Row: Product;
@@ -222,15 +239,13 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'products_category_id_fkey';
-            columns: ['category_id'];
-            isOneToOne: false;
-            referencedRelation: 'categories';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       product_images: {
         Row: ProductImage;
@@ -252,15 +267,13 @@ export interface Database {
           display_order?: number;
           created_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'product_images_product_id_fkey';
-            columns: ['product_id'];
-            isOneToOne: false;
-            referencedRelation: 'products';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       product_variants: {
         Row: ProductVariant;
@@ -284,15 +297,13 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'product_variants_product_id_fkey';
-            columns: ['product_id'];
-            isOneToOne: false;
-            referencedRelation: 'products';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       orders: {
         Row: Order;
@@ -334,7 +345,13 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       order_items: {
         Row: OrderItem;
@@ -364,29 +381,13 @@ export interface Database {
           subtotal_cents?: number;
           created_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'order_items_order_id_fkey';
-            columns: ['order_id'];
-            isOneToOne: false;
-            referencedRelation: 'orders';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'order_items_product_id_fkey';
-            columns: ['product_id'];
-            isOneToOne: false;
-            referencedRelation: 'products';
-            referencedColumns: ['id'];
-          },
-          {
-            foreignKeyName: 'order_items_variant_id_fkey';
-            columns: ['variant_id'];
-            isOneToOne: false;
-            referencedRelation: 'product_variants';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       profiles: {
         Row: Profile;
@@ -410,15 +411,13 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'profiles_id_fkey';
-            columns: ['id'];
-            isOneToOne: true;
-            referencedRelation: 'auth.users';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       admin_users: {
         Row: AdminUser;
@@ -434,15 +433,13 @@ export interface Database {
           role?: 'super_admin' | 'admin' | 'manager';
           created_at?: string;
         };
-        Relationships: [
-          {
-            foreignKeyName: 'admin_users_user_id_fkey';
-            columns: ['user_id'];
-            isOneToOne: true;
-            referencedRelation: 'auth.users';
-            referencedColumns: ['id'];
-          }
-        ];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
       store_settings: {
         Row: StoreSettings;
@@ -460,15 +457,19 @@ export interface Database {
           description?: string | null;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: Array<{
+          foreignKeyName: string;
+          columns: string[];
+          isOneToOne?: boolean;
+          referencedRelation: string;
+          referencedColumns: string[];
+        }>;
       };
     };
-    Views: {
-      [_ in never]: never;
-    };
+    Views: {};
     Functions: {
       get_store_settings: {
-        Args: Record<PropertyKey, never>;
+        Args: Record<string, never>;
         Returns: Json;
       };
       create_order: {
@@ -519,20 +520,20 @@ export interface Database {
         Returns: Json;
       };
       decrement_variant_stock: {
-        Args: Record<PropertyKey, never>;
+        Args: Record<string, never>;
         Returns: unknown;
       };
       update_updated_at_column: {
-        Args: Record<PropertyKey, never>;
+        Args: Record<string, never>;
         Returns: unknown;
       };
     };
-    Enums: {
-      order_status: 'NEW' | 'CONFIRMED' | 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
-      admin_role: 'super_admin' | 'admin' | 'manager';
-    };
-    CompositeTypes: {
-      [_ in never]: never;
-    };
+  };
+  // Internal marker for Supabase type inference (used by supabase-js)
+  // This must be at the root level of Database, not nested under 'public'
+  __InternalSupabase: {
+    PostgrestVersion: '12.2.12 (3e9f9a2)';
   };
 }
+// Export Database type for use in services
+export type DatabaseWithInternals = Database;
