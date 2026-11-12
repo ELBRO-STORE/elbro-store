@@ -12,9 +12,9 @@ CREATE TABLE categories (
   slug TEXT NOT NULL UNIQUE,
   description TEXT,
   image_url TEXT,
-  display_order INTEGER DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Products table
@@ -29,11 +29,11 @@ CREATE TABLE products (
   price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
   sale_price_cents INTEGER CHECK (sale_price_cents >= 0),
   sku TEXT NOT NULL UNIQUE,
-  featured BOOLEAN DEFAULT FALSE,
-  best_seller BOOLEAN DEFAULT FALSE,
-  published BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  featured BOOLEAN NOT NULL DEFAULT FALSE,
+  best_seller BOOLEAN NOT NULL DEFAULT FALSE,
+  published BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Product Images table
@@ -42,8 +42,8 @@ CREATE TABLE product_images (
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   url TEXT NOT NULL,
   alt_text TEXT,
-  is_main BOOLEAN DEFAULT FALSE,
-  display_order INTEGER DEFAULT 0,
+  is_main BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -53,10 +53,10 @@ CREATE TABLE product_variants (
   product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   size TEXT NOT NULL,
   color TEXT NOT NULL,
-  stock INTEGER DEFAULT 0 CHECK (stock >= 0),
+  stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
   sku TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(product_id, size, color)
 );
 
@@ -65,7 +65,6 @@ CREATE INDEX idx_products_category_id ON products(category_id);
 CREATE INDEX idx_products_published ON products(published) WHERE published = TRUE;
 CREATE INDEX idx_products_featured ON products(featured) WHERE featured = TRUE;
 CREATE INDEX idx_products_best_seller ON products(best_seller) WHERE best_seller = TRUE;
-CREATE INDEX idx_products_slug ON products(slug);
 CREATE INDEX idx_product_images_product_id ON product_images(product_id);
 CREATE INDEX idx_product_variants_product_id ON product_variants(product_id);
 CREATE INDEX idx_product_variants_stock ON product_variants(stock) WHERE stock > 0;
@@ -77,7 +76,7 @@ BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 -- Apply updated_at triggers
 CREATE TRIGGER update_categories_updated_at
@@ -91,3 +90,7 @@ CREATE TRIGGER update_products_updated_at
 CREATE TRIGGER update_product_variants_updated_at
   BEFORE UPDATE ON product_variants
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- At most one main image per product.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_product_images_one_main
+  ON product_images(product_id) WHERE is_main = TRUE;

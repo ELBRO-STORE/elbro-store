@@ -15,17 +15,19 @@ ALTER TABLE store_settings ENABLE ROW LEVEL SECURITY;
 -- Public read access for published settings
 CREATE POLICY "Public read store settings"
   ON store_settings FOR SELECT
-  USING (TRUE);
+  USING (key = ANY (ARRAY[
+    'store_name','whatsapp_number','currency','delivery_fee_cents',
+    'free_delivery_from_cents','logo_url','instagram_url','facebook_url',
+    'tiktok_url','email','phone','address','store_open'
+  ]));
 
 -- Admin write access
 CREATE POLICY "Admins can manage store settings"
   ON store_settings FOR ALL
   USING (
-    EXISTS (
-      SELECT 1 FROM admin_users au
-      WHERE au.user_id = auth.uid()
-    )
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- Trigger for updated_at
 CREATE TRIGGER update_store_settings_updated_at

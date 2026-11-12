@@ -19,8 +19,9 @@ CREATE POLICY "Public read published categories"
 CREATE POLICY "Admins manage categories"
   ON categories FOR ALL
   USING (
-    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- ============================================================
 -- PRODUCTS: Public read published, Admin full access
@@ -32,8 +33,9 @@ CREATE POLICY "Public read published products"
 CREATE POLICY "Admins manage products"
   ON products FOR ALL
   USING (
-    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- ============================================================
 -- PRODUCT IMAGES: Public read for published products, Admin full
@@ -51,8 +53,9 @@ CREATE POLICY "Public read product images"
 CREATE POLICY "Admins manage product images"
   ON product_images FOR ALL
   USING (
-    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- ============================================================
 -- PRODUCT VARIANTS: Public read for published products, Admin full
@@ -70,8 +73,9 @@ CREATE POLICY "Public read product variants"
 CREATE POLICY "Admins manage product variants"
   ON product_variants FOR ALL
   USING (
-    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- ============================================================
 -- ORDERS: Users read own, Admins full access
@@ -82,18 +86,15 @@ CREATE POLICY "Users read own orders"
     customer_phone = (
       SELECT phone FROM profiles WHERE id = auth.uid()
     )
-    OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+    OR is_admin()
   );
-
-CREATE POLICY "Users create orders"
-  ON orders FOR INSERT
-  WITH CHECK (TRUE); -- Allow guest orders, validated server-side
 
 CREATE POLICY "Admins manage orders"
   ON orders FOR ALL
   USING (
-    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- ============================================================
 -- ORDER ITEMS: Users read own (via order), Admins full
@@ -108,7 +109,7 @@ CREATE POLICY "Users read own order items"
         o.customer_phone = (
           SELECT phone FROM profiles WHERE id = auth.uid()
         )
-        OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+        OR is_admin()
       )
     )
   );
@@ -116,12 +117,34 @@ CREATE POLICY "Users read own order items"
 CREATE POLICY "Admins manage order items"
   ON order_items FOR ALL
   USING (
-    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
-  );
+    is_admin()
+  )
+  WITH CHECK (is_admin());
 
 -- ============================================================
 -- STORAGE POLICIES (for product-images bucket)
 -- ============================================================
--- Note: These are applied via Supabase Dashboard or storage policies
--- Public read for product images
--- Admin write for product images
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('product-images', 'product-images', TRUE)
+ON CONFLICT (id) DO UPDATE SET public = TRUE;
+
+DROP POLICY IF EXISTS "Public read product images bucket" ON storage.objects;
+CREATE POLICY "Public read product images bucket"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'product-images');
+
+DROP POLICY IF EXISTS "Admins upload product images bucket" ON storage.objects;
+CREATE POLICY "Admins upload product images bucket"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'product-images' AND public.is_admin());
+
+DROP POLICY IF EXISTS "Admins update product images bucket" ON storage.objects;
+CREATE POLICY "Admins update product images bucket"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'product-images' AND public.is_admin())
+  WITH CHECK (bucket_id = 'product-images' AND public.is_admin());
+
+DROP POLICY IF EXISTS "Admins delete product images bucket" ON storage.objects;
+CREATE POLICY "Admins delete product images bucket"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'product-images' AND public.is_admin());

@@ -8,100 +8,22 @@ DECLARE
   settings JSONB := '{}'::JSONB;
   rec RECORD;
 BEGIN
-  FOR rec IN SELECT key, value FROM store_settings LOOP
+  FOR rec IN
+    SELECT key, value FROM store_settings
+    WHERE key = ANY (ARRAY[
+      'store_name','whatsapp_number','currency','delivery_fee_cents',
+      'free_delivery_from_cents','logo_url','instagram_url','facebook_url',
+      'tiktok_url','email','phone','address','store_open'
+    ])
+  LOOP
     settings := jsonb_set(settings, ARRAY[rec.key], COALESCE(rec.value, 'null'::JSONB));
   END LOOP;
   RETURN settings;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- Function to create order with items (atomic transaction)
-CREATE OR REPLACE FUNCTION create_order(
-  p_customer_name TEXT,
-  p_customer_phone TEXT,
-  p_customer_city TEXT,
-  p_customer_address TEXT,
-  p_customer_email TEXT,
-  p_delivery_instructions TEXT,
-  p_notes TEXT,
-  p_items JSONB, -- Array of {product_id, variant_id, piece_name, size, color, quantity, unit_price_cents}
-  p_delivery_fee_cents INTEGER DEFAULT 0
-)
-RETURNS UUID AS $$
-DECLARE
-  v_order_id UUID;
-  v_order_ref TEXT;
-  v_subtotal_cents INTEGER := 0;
-  v_total_cents INTEGER;
-  v_item JSONB;
-BEGIN
-  -- Generate order reference
-  v_order_ref := 'ELBRO-' || TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS') || '-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 6));
-
-  -- Calculate subtotal from items
-  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
-    v_subtotal_cents := v_subtotal_cents + (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER;
-  END LOOP;
-
-  v_total_cents := v_subtotal_cents + p_delivery_fee_cents;
-
-  -- Create order
-  INSERT INTO orders (
-    order_ref,
-    customer_name,
-    customer_phone,
-    customer_city,
-    customer_address,
-    customer_email,
-    delivery_instructions,
-    notes,
-    subtotal_cents,
-    delivery_fee_cents,
-    total_cents,
-    status
-  ) VALUES (
-    v_order_ref,
-    p_customer_name,
-    p_customer_phone,
-    p_customer_city,
-    p_customer_address,
-    p_customer_email,
-    p_delivery_instructions,
-    p_notes,
-    v_subtotal_cents,
-    p_delivery_fee_cents,
-    v_total_cents,
-    'NEW'
-  ) RETURNING id INTO v_order_id;
-
-  -- Create order items
-  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
-    INSERT INTO order_items (
-      order_id,
-      product_id,
-      variant_id,
-      piece_name,
-      size,
-      color,
-      quantity,
-      unit_price_cents,
-      subtotal_cents
-    ) VALUES (
-      v_order_id,
-      (v_item->>'product_id')::UUID,
-      CASE WHEN (v_item->>'variant_id') IS NOT NULL THEN (v_item->>'variant_id')::UUID ELSE NULL END,
-      v_item->>'piece_name',
-      v_item->>'size',
-      v_item->>'color',
-      (v_item->>'quantity')::INTEGER,
-      (v_item->>'unit_price_cents')::INTEGER,
-      (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER
-    );
-  END LOOP;
-
-  RETURN v_order_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Order creation is intentionally defined only in migration 008,
+-- where identity, product prices, stock and delivery settings are validated.
 
 -- Function to update order status with validation
 CREATE OR REPLACE FUNCTION update_order_status(
@@ -115,8 +37,8 @@ DECLARE
   v_is_admin BOOLEAN;
 BEGIN
   -- Check admin permission
-  SELECT EXISTS(SELECT 1 FROM admin_users WHERE user_id = p_admin_user_id) INTO v_is_admin;
-  IF NOT v_is_admin THEN
+  SELECT is_admin() INTO v_is_admin;
+  IF NOT v_is_admin OR p_admin_user_id IS DISTINCT FROM auth.uid() THEN
     RAISE EXCEPTION 'Unauthorized: Admin access required';
   END IF;
 
@@ -135,6 +57,20 @@ BEGIN
     RAISE EXCEPTION 'Cannot change status from DELIVERED';
   END IF;
 
+  IF p_new_status NOT IN ('NEW','CONFIRMED','PREPARING','SHIPPED','DELIVERED','CANCELLED') THEN
+    RAISE EXCEPTION 'Invalid order status';
+  END IF;
+
+  IF NOT (
+    (v_current_status = 'NEW' AND p_new_status IN ('CONFIRMED','CANCELLED')) OR
+    (v_current_status = 'CONFIRMED' AND p_new_status IN ('PREPARING','CANCELLED')) OR
+    (v_current_status = 'PREPARING' AND p_new_status IN ('SHIPPED','CANCELLED')) OR
+    (v_current_status = 'SHIPPED' AND p_new_status IN ('DELIVERED','CANCELLED')) OR
+    (v_current_status = p_new_status)
+  ) THEN
+    RAISE EXCEPTION 'Invalid order status transition';
+  END IF;
+
   -- Update status
   UPDATE orders
   SET status = p_new_status, updated_at = NOW()
@@ -142,7 +78,7 @@ BEGIN
 
   RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- Function to mark order as synced to Google Sheets
 CREATE OR REPLACE FUNCTION mark_order_synced(
@@ -151,13 +87,14 @@ CREATE OR REPLACE FUNCTION mark_order_synced(
 )
 RETURNS VOID AS $$
 BEGIN
+  IF NOT is_admin() THEN RAISE EXCEPTION 'Admin access required'; END IF;
   UPDATE orders
   SET google_sheets_synced = TRUE,
       google_sheets_order_id = p_sheets_order_id,
       updated_at = NOW()
   WHERE id = p_order_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- Function to get product with variants and images (for product detail)
 CREATE OR REPLACE FUNCTION get_product_detail(p_slug TEXT)
@@ -185,7 +122,7 @@ BEGIN
 
   RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- Function to get products with filters (for listing)
 CREATE OR REPLACE FUNCTION get_products_filtered(
@@ -193,53 +130,59 @@ CREATE OR REPLACE FUNCTION get_products_filtered(
   p_search TEXT DEFAULT NULL,
   p_featured BOOLEAN DEFAULT NULL,
   p_best_seller BOOLEAN DEFAULT NULL,
-  p_sort TEXT DEFAULT 'newest', -- newest, price_asc, price_desc, best_seller
+  p_sort TEXT DEFAULT 'newest',
   p_limit INTEGER DEFAULT 20,
   p_offset INTEGER DEFAULT 0
 )
-RETURNS JSONB AS $$
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 DECLARE
-  v_query TEXT;
-  v_count INTEGER;
-  v_results JSONB;
+  v_result JSONB;
+  v_limit INTEGER := LEAST(GREATEST(COALESCE(p_limit, 20), 1), 100);
+  v_offset INTEGER := GREATEST(COALESCE(p_offset, 0), 0);
 BEGIN
-  -- Build dynamic query
-  v_query := '
-    SELECT jsonb_build_object(
-      ''products'', COALESCE(JSONB_AGG(to_jsonb(p) ORDER BY
-        CASE
-          WHEN $6 = ''price_asc'' THEN p.price_cents
-          WHEN $6 = ''price_desc'' THEN p.price_cents DESC
-          WHEN $6 = ''best_seller'' THEN p.best_seller DESC
-          ELSE p.created_at DESC
-        END
-      ), ''[]''::JSONB),
-      ''total'', COUNT(*) OVER()
-    )
+  WITH filtered AS (
+    SELECT p.*
     FROM products p
     JOIN categories c ON c.id = p.category_id
     WHERE p.published = TRUE
-  ';
-
-  IF p_category_slug IS NOT NULL THEN
-    v_query := v_query || ' AND c.slug = $1';
-  END IF;
-
-  IF p_search IS NOT NULL THEN
-    v_query := v_query || ' AND (p.name ILIKE $2 OR p.description ILIKE $2)';
-  END IF;
-
-  IF p_featured IS NOT NULL THEN
-    v_query := v_query || ' AND p.featured = $3';
-  END IF;
-
-  IF p_best_seller IS NOT NULL THEN
-    v_query := v_query || ' AND p.best_seller = $4';
-  END IF;
-
-  v_query := v_query || ' LIMIT $5 OFFSET $6';
-
-  -- This is a simplified version; in production use proper dynamic SQL
-  RETURN '{}'::JSONB;
+      AND (p_category_slug IS NULL OR c.slug = p_category_slug)
+      AND (NULLIF(BTRIM(p_search), '') IS NULL
+           OR p.name ILIKE '%' || p_search || '%'
+           OR p.description ILIKE '%' || p_search || '%')
+      AND (p_featured IS NULL OR p.featured = p_featured)
+      AND (p_best_seller IS NULL OR p.best_seller = p_best_seller)
+  ),
+  page AS (
+    SELECT *
+    FROM filtered
+    ORDER BY
+      CASE WHEN p_sort = 'price_asc' THEN price_cents END ASC NULLS LAST,
+      CASE WHEN p_sort = 'price_desc' THEN price_cents END DESC NULLS LAST,
+      CASE WHEN p_sort = 'best_seller' THEN best_seller::INT END DESC NULLS LAST,
+      CASE WHEN p_sort NOT IN ('price_asc','price_desc','best_seller') THEN created_at END DESC NULLS LAST
+    LIMIT v_limit OFFSET v_offset
+  )
+  SELECT jsonb_build_object(
+    'products', COALESCE((SELECT jsonb_agg(to_jsonb(page)) FROM page), '[]'::jsonb),
+    'total', (SELECT COUNT(*) FROM filtered)
+  ) INTO v_result;
+  RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+-- Restrict execution of privileged functions; callers are explicitly granted below.
+REVOKE ALL ON FUNCTION get_store_settings() FROM PUBLIC;
+REVOKE ALL ON FUNCTION update_order_status(UUID,TEXT,UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION mark_order_synced(UUID,TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_product_detail(TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION get_products_filtered(TEXT,TEXT,BOOLEAN,BOOLEAN,TEXT,INTEGER,INTEGER) FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION get_store_settings() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_product_detail(TEXT) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_products_filtered(TEXT,TEXT,BOOLEAN,BOOLEAN,TEXT,INTEGER,INTEGER) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION update_order_status(UUID,TEXT,UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION mark_order_synced(UUID,TEXT) TO authenticated;

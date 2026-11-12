@@ -25,37 +25,59 @@ CREATE TABLE admin_users (
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
 
+
+-- SECURITY DEFINER helpers avoid recursive RLS lookups on admin_users.
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid());
+$$;
+
+CREATE OR REPLACE FUNCTION is_super_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.admin_users
+    WHERE user_id = auth.uid() AND role = 'super_admin'
+  );
+$$;
+
+REVOKE ALL ON FUNCTION is_admin() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION is_super_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION is_admin() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION is_super_admin() TO anon, authenticated;
+
 -- Profiles policies
 CREATE POLICY "Users can view own profile"
   ON profiles FOR SELECT
-  USING (auth.uid() = id);
+  USING (auth.uid() = id OR is_admin());
 
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
-  USING (auth.uid() = id);
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
 
 CREATE POLICY "Users can insert own profile"
   ON profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
--- Admin users policies (only admins can view)
+-- Admin users policies: helper functions bypass table RLS safely.
 CREATE POLICY "Admins can view admin_users"
   ON admin_users FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM admin_users au
-      WHERE au.user_id = auth.uid()
-    )
-  );
+  USING (is_admin());
 
 CREATE POLICY "Super admins can manage admin_users"
   ON admin_users FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM admin_users au
-      WHERE au.user_id = auth.uid() AND au.role = 'super_admin'
-    )
-  );
+  USING (is_super_admin())
+  WITH CHECK (is_super_admin());
 
 -- Trigger for updated_at on profiles
 CREATE TRIGGER update_profiles_updated_at

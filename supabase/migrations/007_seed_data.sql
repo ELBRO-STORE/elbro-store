@@ -55,8 +55,7 @@ BEGIN
     (cat_vetements, 'Pantalon Cargo Premium', 'pantalon-cargo-premium', 'Pantalon cargo premium.', 'Pantalon cargo multi-poches, coupe droite.', 'Coton sergé', 19900, NULL, 'CARGO-001', FALSE, FALSE, TRUE),
     (cat_chaussures, 'Sneakers Premium', 'sneakers-premium', 'Sneakers premium.', 'Sneakers montantes, semelle confort.', 'Synthétique premium', 19900, NULL, 'SNEAKERS-001', FALSE, FALSE, TRUE)
   ON CONFLICT (slug) DO UPDATE SET
-    price_cents = EXCLUDED.price_cents
-  RETURNING id INTO prod_hoodie; -- Only returns last, we'll select them
+    price_cents = EXCLUDED.price_cents; -- IDs are selected below
 
   -- Get product IDs for variants
   SELECT id INTO prod_outfit FROM products WHERE slug = 'elbro-premium-outfit';

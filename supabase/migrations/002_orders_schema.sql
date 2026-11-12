@@ -16,10 +16,10 @@ CREATE TABLE orders (
   delivery_fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (delivery_fee_cents >= 0),
   total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
   status TEXT NOT NULL DEFAULT 'NEW' CHECK (status IN ('NEW', 'CONFIRMED', 'PREPARING', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
-  google_sheets_synced BOOLEAN DEFAULT FALSE,
+  google_sheets_synced BOOLEAN NOT NULL DEFAULT FALSE,
   google_sheets_order_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Order Items table
@@ -33,7 +33,7 @@ CREATE TABLE order_items (
   color TEXT NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
-  subtotal_cents INTEGER NOT NULL CHECK (subtotal_cents >= 0),
+  subtotal_cents INTEGER NOT NULL CHECK (subtotal_cents = quantity * unit_price_cents),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -41,7 +41,6 @@ CREATE TABLE order_items (
 CREATE INDEX idx_orders_status ON orders(status);
 CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX idx_orders_customer_phone ON orders(customer_phone);
-CREATE INDEX idx_orders_order_ref ON orders(order_ref);
 CREATE INDEX idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX idx_order_items_product_id ON order_items(product_id);
 
@@ -66,8 +65,30 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 CREATE TRIGGER trigger_decrement_stock
   AFTER INSERT ON order_items
   FOR EACH ROW EXECUTE FUNCTION decrement_variant_stock();
+
+
+-- Prevent an order item from pairing a product with another product's variant.
+CREATE OR REPLACE FUNCTION validate_order_item_variant()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NEW.variant_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM product_variants v
+    WHERE v.id = NEW.variant_id AND v.product_id = NEW.product_id
+  ) THEN
+    RAISE EXCEPTION 'Variant does not belong to product';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_validate_order_item_variant
+  BEFORE INSERT OR UPDATE OF product_id, variant_id ON order_items
+  FOR EACH ROW EXECUTE FUNCTION validate_order_item_variant();
