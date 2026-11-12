@@ -18,12 +18,15 @@ const OrderSuccess = lazy(() => import('./pages/OrderSuccess').then(m => ({ defa
 const Login = lazy(() => import('./pages/Login').then(m => ({ default: m.Login })));
 const Wishlist = lazy(() => import('./pages/Wishlist').then(m => ({ default: m.Wishlist })));
 const OrderTracking = lazy(() => import('./pages/OrderTracking').then(m => ({ default: m.OrderTracking })));
+
 const AdminDashboard = lazy(() => import('./pages/admin/Dashboard').then(m => ({ default: m.AdminDashboard })));
 const AdminProducts = lazy(() => import('./pages/admin/Products').then(m => ({ default: m.AdminProducts })));
 const AdminOrders = lazy(() => import('./pages/admin/Orders').then(m => ({ default: m.AdminOrders })));
 const AdminSettings = lazy(() => import('./pages/admin/Settings').then(m => ({ default: m.AdminSettings })));
 const AdminCoupons = lazy(() => import('./pages/admin/Coupons').then(m => ({ default: m.AdminCoupons })));
 const AdminUsers = lazy(() => import('./pages/admin/Users').then(m => ({ default: m.AdminUsers })));
+const AdminCategories = lazy(() => import('./pages/admin/Categories').then(m => ({ default: m.AdminCategories })));
+
 const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
 
 function Loading() {
@@ -62,6 +65,7 @@ export default function App() {
                   <Route path="commandes/:id" element={<AdminOrders />} />
                   <Route path="coupons" element={<AdminCoupons />} />
                   <Route path="utilisateurs" element={<AdminUsers />} />
+                  <Route path="categories" element={<AdminCategories />} />
                   <Route path="parametres" element={<AdminSettings />} />
                 </Route>
 

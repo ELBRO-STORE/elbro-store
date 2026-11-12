@@ -1,7 +1,17 @@
+
 import { cn } from '../../lib/utils';
 import type { LayoutProps } from './MainLayout';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, ShoppingBag, Settings, LogOut, Tag, Users } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Package,
+  ShoppingBag,
+  Settings,
+  LogOut,
+  Tag,
+  Users,
+  FolderTree,
+} from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
 export function AdminLayout({ children }: LayoutProps) {
@@ -13,10 +23,12 @@ export function AdminLayout({ children }: LayoutProps) {
       >
         Aller au contenu principal
       </a>
+
       <div className="flex">
         <aside className="fixed inset-y-0 left-0 z-30 w-64 bg-elbro-900 border-r border-elbro-400/10 hidden lg:block">
           <AdminSidebar />
         </aside>
+
         <main id="admin-content" className="flex-1 lg:ml-64 min-h-screen">
           <div className="p-6 lg:p-8">
             {children}
@@ -34,6 +46,7 @@ function AdminSidebar() {
   const navItems = [
     { href: '/admin', label: 'Tableau de bord', icon: LayoutDashboard },
     { href: '/admin/produits', label: 'Produits', icon: Package },
+    { href: '/admin/categories', label: 'Catégories', icon: FolderTree },
     { href: '/admin/commandes', label: 'Commandes', icon: ShoppingBag },
     { href: '/admin/coupons', label: 'Coupons', icon: Tag },
     { href: '/admin/utilisateurs', label: 'Utilisateurs', icon: Users },
@@ -45,14 +58,20 @@ function AdminSidebar() {
       <div className="mb-8">
         <Link to="/admin" className="flex items-center gap-2">
           <span className="font-bold text-xl tracking-wider text-elbro-100">ELBRO</span>
-          <span className="text-xs font-medium tracking-widest text-elbro-400 uppercase">ADMIN</span>
+          <span className="text-xs font-medium tracking-widest text-elbro-400 uppercase">
+            ADMIN
+          </span>
         </Link>
       </div>
 
       <nav className="flex-1 space-y-1" aria-label="Navigation administration">
         {navItems.map((item) => {
-          const isActive = location.pathname === item.href || location.pathname.startsWith(item.href + '/');
+          const isActive =
+            location.pathname === item.href ||
+            location.pathname.startsWith(item.href + '/');
+
           const Icon = item.icon;
+
           return (
             <Link
               key={item.href}
@@ -77,6 +96,7 @@ function AdminSidebar() {
             <p className="font-medium text-elbro-100 truncate">{user?.email}</p>
             <p className="text-xs text-elbro-400">Administrateur</p>
           </div>
+
           <button
             onClick={signOut}
             className="p-2 rounded-lg text-elbro-400 hover:text-elbro-100 hover:bg-elbro-950 transition-colors"
