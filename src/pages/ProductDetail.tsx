@@ -1,17 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ShoppingBag, Plus, Minus, Truck, Shield, RefreshCw, Share2 } from 'lucide-react';
+import { ShoppingBag, Plus, Minus, Truck, Shield, RefreshCw, Share2, Heart } from 'lucide-react';
 import { Container } from '../components/layout/Container';
 import { Button } from '../components/ui';
 import { Modal } from '../components/ui';
 import { useProduct } from '../hooks/useProducts';
 import { useCart, createCartItem } from '../hooks/useCart';
+import { useWishlist } from '../hooks/useWishlist';
 import { formatPrice } from '../lib/utils';
+import { ProductReviews } from '../components/reviews/ProductReviews';
 
 export function ProductDetail() {
   const { slug } = useParams<{ slug: string }>();
   const { product, loading, error } = useProduct(slug || '');
   const { addItem, toggleCart } = useCart();
+  const { wishlistProductIds, toggle } = useWishlist();
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string>('');
@@ -346,6 +349,19 @@ export function ProductDetail() {
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row gap-4 pt-4 border-t border-elbro-400/10">
+                {/* Wishlist Button */}
+                <Button
+                  size="lg"
+                  variant="ghost"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => toggle(product.id, selectedVariant?.id, product.name)}
+                  aria-label={wishlistProductIds.has(product.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                >
+                  <Heart
+                    className={`w-5 h-5 ${wishlistProductIds.has(product.id) ? 'fill-current text-red-500' : ''}`}
+                  />
+                  {wishlistProductIds.has(product.id) ? 'Dans les favoris' : 'Ajouter aux favoris'}
+                </Button>
                 <Button
                   size="lg"
                   className="flex-1"
@@ -401,6 +417,15 @@ export function ProductDetail() {
           </div>
         </Container>
       </main>
+
+      {/* Product Reviews */}
+      {product && (
+        <div className="py-8">
+          <Container>
+            <ProductReviews productId={product.id} />
+          </Container>
+        </div>
+      )}
 
       {/* Size Guide Modal */}
       <Modal

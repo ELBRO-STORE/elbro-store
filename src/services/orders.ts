@@ -1,6 +1,5 @@
 import { supabase } from '../lib/supabase';
 import type { Order, OrderItem, CartItem } from '../types/database';
-import { generateOrderRef } from '../lib/utils';
 
 export interface CreateOrderData {
   customer_name: string;
@@ -12,6 +11,9 @@ export interface CreateOrderData {
   notes?: string;
   items: CartItem[];
   delivery_fee_cents: number;
+  user_id?: string;
+  discount_cents?: number;
+  coupon_id?: string;
 }
 
 export interface OrderResponse {
@@ -21,40 +23,48 @@ export interface OrderResponse {
 }
 
 export async function createOrder(data: CreateOrderData): Promise<OrderResponse> {
-  const orderRef = generateOrderRef();
-
-  // Calculate subtotal from items
-  const subtotalCents = data.items.reduce(
-    (sum, item) => sum + item.unitPriceCents * item.quantity,
-    0
-  );
-  const totalCents = subtotalCents + data.delivery_fee_cents;
-
   // Create order
   const { data: order, error: orderError } = await supabase
-    .from('orders')
-    .insert({
-      order_ref: orderRef,
-      customer_name: data.customer_name,
-      customer_phone: data.customer_phone,
-      customer_city: data.customer_city,
-      customer_address: data.customer_address,
-      customer_email: data.customer_email || null,
-      delivery_instructions: data.delivery_instructions || null,
-      notes: data.notes || null,
-      subtotal_cents: subtotalCents,
-      delivery_fee_cents: data.delivery_fee_cents,
-      total_cents: totalCents,
-      status: 'NEW',
-    })
-    .select()
-    .single();
+    .rpc('create_order', {
+      p_customer_name: data.customer_name,
+      p_customer_phone: data.customer_phone,
+      p_customer_city: data.customer_city,
+      p_customer_address: data.customer_address,
+      p_customer_email: data.customer_email ?? '',
+      p_delivery_instructions: data.delivery_instructions ?? '',
+      p_notes: data.notes ?? '',
+      p_items: data.items.map((item) => ({
+        product_id: item.productId,
+        variant_id: item.variantId,
+        piece_name: item.pieceName,
+        size: item.size,
+        color: item.color,
+        quantity: item.quantity,
+        unit_price_cents: item.unitPriceCents,
+      })),
+      p_delivery_fee_cents: data.delivery_fee_cents,
+      p_user_id: data.user_id ?? null,
+      p_discount_cents: data.discount_cents ?? 0,
+      p_coupon_id: data.coupon_id ?? null,
+    });
 
   if (orderError) throw orderError;
 
-  // Create order items
+  // Fetch the created order with items
+  const { data: orderWithItems, error: fetchError } = await supabase
+    .from('orders')
+    .select(`
+      *,
+      items:order_items(*, product:products(*), variant:product_variants(*))
+    `)
+    .eq('id', order)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  // Create order items for response
   const orderItemsData = data.items.map((item) => ({
-    order_id: order.id,
+    order_id: order,
     product_id: item.productId,
     variant_id: item.variantId,
     piece_name: item.pieceName,
@@ -65,19 +75,12 @@ export async function createOrder(data: CreateOrderData): Promise<OrderResponse>
     subtotal_cents: item.unitPriceCents * item.quantity,
   }));
 
-  const { data: orderItems, error: itemsError } = await supabase
-    .from('order_items')
-    .insert(orderItemsData)
-    .select();
-
-  if (itemsError) throw itemsError;
-
   // Generate WhatsApp URL
-  const whatsappUrl = generateWhatsAppUrl(order as Order, orderItems as OrderItem[]);
+  const whatsappUrl = generateWhatsAppUrl(orderWithItems as Order, orderItemsData as OrderItem[]);
 
   return {
-    order: order as Order,
-    orderItems: orderItems as OrderItem[],
+    order: orderWithItems as Order,
+    orderItems: orderItemsData as OrderItem[],
     whatsappUrl,
   };
 }

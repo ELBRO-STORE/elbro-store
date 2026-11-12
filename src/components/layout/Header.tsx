@@ -1,14 +1,16 @@
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingBag, Menu, X } from 'lucide-react';
+import { ShoppingBag, Menu, X, Heart } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '../../lib/utils';
 import { useCart } from '../../hooks/useCart';
+import { useWishlist } from '../../hooks/useWishlist';
 import { useAuth } from '../../hooks/useAuth';
 
 export function Header() {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { itemCount } = useCart();
+  const { wishlistCount } = useWishlist();
   const { user, isAdmin, signOut } = useAuth();
 
   const navLinks = [
@@ -56,6 +58,18 @@ export function Header() {
 
           {/* Actions */}
           <div className="flex items-center gap-4">
+            {/* Wishlist */}
+            {user && (
+              <Link to="/favoris" className="relative p-2 text-elbro-400 hover:text-elbro-100 transition-colors" aria-label="Favoris">
+                <Heart className="w-6 h-6" />
+                {wishlistCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-elbro-100 text-elbro-950 text-xs font-bold">
+                    {wishlistCount > 99 ? '99+' : wishlistCount}
+                  </span>
+                )}
+              </Link>
+            )}
+
             {/* Cart */}
             <Link to="/panier" className="relative p-2 text-elbro-400 hover:text-elbro-100 transition-colors" aria-label="Panier">
               <ShoppingBag className="w-6 h-6" />
@@ -74,6 +88,9 @@ export function Header() {
                     Administration
                   </Link>
                 )}
+                <Link to="/profil" className="text-sm font-medium text-elbro-400 hover:text-elbro-100 transition-colors">
+                  Mon compte
+                </Link>
                 <button
                   onClick={signOut}
                   className="text-sm font-medium text-elbro-400 hover:text-elbro-100 transition-colors"
@@ -120,7 +137,11 @@ export function Header() {
                   {link.label}
                 </Link>
               ))}
-              <div className="pt-4 border-t border-elbro-400/10 flex items-center gap-4">
+              <div className="pt-4 border-t border-elbro-400/10 flex flex-col gap-2">
+                <Link to="/favoris" className="flex items-center gap-2 text-elbro-400 hover:text-elbro-100" onClick={() => setMobileMenuOpen(false)}>
+                  <Heart className="w-5 h-5" />
+                  Favoris {wishlistCount > 0 && `(${wishlistCount})`}
+                </Link>
                 <Link to="/panier" className="flex items-center gap-2 text-elbro-400 hover:text-elbro-100" onClick={() => setMobileMenuOpen(false)}>
                   <ShoppingBag className="w-5 h-5" />
                   Panier {itemCount > 0 && `(${itemCount})`}
@@ -132,6 +153,9 @@ export function Header() {
                         Administration
                       </Link>
                     )}
+                    <Link to="/profil" className="text-elbro-400 hover:text-elbro-100" onClick={() => setMobileMenuOpen(false)}>
+                      Mon compte
+                    </Link>
                     <button onClick={() => { signOut(); setMobileMenuOpen(false); }} className="text-elbro-400 hover:text-elbro-100">
                       Déconnexion
                     </button>

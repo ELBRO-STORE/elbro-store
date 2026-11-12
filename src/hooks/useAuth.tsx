@@ -89,8 +89,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     dispatch({ type: 'SET_LOADING', payload: true });
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
     dispatch({ type: 'SET_LOADING', payload: false });
+
+    // Link guest orders to this user after successful login
+    if (!error && data.user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('phone')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profile?.phone) {
+        await supabase.rpc('link_guest_orders_to_user', {
+          p_user_id: data.user.id,
+          p_phone: profile.phone,
+        });
+      }
+    }
     return { error };
   };
 
@@ -110,6 +126,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         full_name: fullName,
         phone,
       } as any);
+
+      // Link guest orders to this user
+      if (phone) {
+        await supabase.rpc('link_guest_orders_to_user', {
+          p_user_id: data.user.id,
+          p_phone: phone,
+        });
+      }
     }
     return { error };
   };

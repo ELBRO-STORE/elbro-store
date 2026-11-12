@@ -41,3 +41,12 @@ export const STORAGE_BUCKETS = {
   PRODUCT_IMAGES: 'product-images',
   LOGO: 'store-assets',
 } as const;
+
+export function formatPriceMAD(cents: number): string {
+  return new Intl.NumberFormat('fr-MA', {
+    style: 'currency',
+    currency: 'MAD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}

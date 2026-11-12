@@ -13,6 +13,15 @@ export function formatPriceRaw(cents: number): string {
   return (cents / 100).toLocaleString('fr-MA');
 }
 
+export function formatDate(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  return new Date(dateString).toLocaleDateString('fr-MA', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 export function parsePrice(priceStr: string): number {
   const cleaned = priceStr.replace(/[^\d.,]/g, '').replace(',', '.');
   return Math.round(parseFloat(cleaned) * 100);

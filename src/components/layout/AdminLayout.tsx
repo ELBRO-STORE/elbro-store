@@ -1,7 +1,7 @@
 import { cn } from '../../lib/utils';
 import type { LayoutProps } from './MainLayout';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, ShoppingBag, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Package, ShoppingBag, Settings, LogOut, Tag, Users } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 
 export function AdminLayout({ children }: LayoutProps) {
@@ -35,6 +35,8 @@ function AdminSidebar() {
     { href: '/admin', label: 'Tableau de bord', icon: LayoutDashboard },
     { href: '/admin/produits', label: 'Produits', icon: Package },
     { href: '/admin/commandes', label: 'Commandes', icon: ShoppingBag },
+    { href: '/admin/coupons', label: 'Coupons', icon: Tag },
+    { href: '/admin/utilisateurs', label: 'Utilisateurs', icon: Users },
     { href: '/admin/parametres', label: 'Paramètres', icon: Settings },
   ];
 

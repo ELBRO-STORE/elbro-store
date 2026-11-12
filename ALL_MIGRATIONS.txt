@@ -1,0 +1,2152 @@
+
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 001_initial_schema.sql ==========   & type supabase\migrations\001_initial_schema.sql ) 
+ 
+========== 001_initial_schema.sql ========== 
+-- ELBRO STORE - Initial Schema
+-- Categories, Products, Product Images, Product Variants
+
+-- Enable required extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Categories table
+CREATE TABLE categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  description TEXT,
+  image_url TEXT,
+  display_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Products table
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id UUID NOT NULL REFERENCES categories(id) ON DELETE RESTRICT,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL,
+  full_description TEXT,
+  material TEXT,
+  price_cents INTEGER NOT NULL CHECK (price_cents >= 0),
+  sale_price_cents INTEGER CHECK (sale_price_cents >= 0),
+  sku TEXT NOT NULL UNIQUE,
+  featured BOOLEAN DEFAULT FALSE,
+  best_seller BOOLEAN DEFAULT FALSE,
+  published BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Product Images table
+CREATE TABLE product_images (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  alt_text TEXT,
+  is_main BOOLEAN DEFAULT FALSE,
+  display_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Product Variants table (size/color combinations with stock)
+CREATE TABLE product_variants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  size TEXT NOT NULL,
+  color TEXT NOT NULL,
+  stock INTEGER DEFAULT 0 CHECK (stock >= 0),
+  sku TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(product_id, size, color)
+);
+
+-- Indexes for performance
+CREATE INDEX idx_products_category_id ON products(category_id);
+CREATE INDEX idx_products_published ON products(published) WHERE published = TRUE;
+CREATE INDEX idx_products_featured ON products(featured) WHERE featured = TRUE;
+CREATE INDEX idx_products_best_seller ON products(best_seller) WHERE best_seller = TRUE;
+CREATE INDEX idx_products_slug ON products(slug);
+CREATE INDEX idx_product_images_product_id ON product_images(product_id);
+CREATE INDEX idx_product_variants_product_id ON product_variants(product_id);
+CREATE INDEX idx_product_variants_stock ON product_variants(stock) WHERE stock > 0;
+
+-- Updated_at trigger function
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply updated_at triggers
+CREATE TRIGGER update_categories_updated_at
+  BEFORE UPDATE ON categories
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_products_updated_at
+  BEFORE UPDATE ON products
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_product_variants_updated_at
+  BEFORE UPDATE ON product_variants
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 002_orders_schema.sql ==========   & type supabase\migrations\002_orders_schema.sql ) 
+ 
+========== 002_orders_schema.sql ========== 
+-- ELBRO STORE - Orders Schema
+-- Orders and Order Items tables
+
+-- Orders table
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_ref TEXT NOT NULL UNIQUE,
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT NOT NULL,
+  customer_city TEXT NOT NULL,
+  customer_address TEXT NOT NULL,
+  customer_email TEXT,
+  delivery_instructions TEXT,
+  notes TEXT,
+  subtotal_cents INTEGER NOT NULL CHECK (subtotal_cents >= 0),
+  delivery_fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (delivery_fee_cents >= 0),
+  total_cents INTEGER NOT NULL CHECK (total_cents >= 0),
+  status TEXT NOT NULL DEFAULT 'NEW' CHECK (status IN ('NEW', 'CONFIRMED', 'PREPARING', 'SHIPPED', 'DELIVERED', 'CANCELLED')),
+  google_sheets_synced BOOLEAN DEFAULT FALSE,
+  google_sheets_order_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Order Items table
+CREATE TABLE order_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+  variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL,
+  piece_name TEXT NOT NULL,
+  size TEXT NOT NULL,
+  color TEXT NOT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+  subtotal_cents INTEGER NOT NULL CHECK (subtotal_cents >= 0),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_orders_status ON orders(status);
+CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX idx_orders_customer_phone ON orders(customer_phone);
+CREATE INDEX idx_orders_order_ref ON orders(order_ref);
+CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX idx_order_items_product_id ON order_items(product_id);
+
+-- Trigger for updated_at
+CREATE TRIGGER update_orders_updated_at
+  BEFORE UPDATE ON orders
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Function to decrement stock when order is created
+CREATE OR REPLACE FUNCTION decrement_variant_stock()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.variant_id IS NOT NULL THEN
+    UPDATE product_variants
+    SET stock = stock - NEW.quantity
+    WHERE id = NEW.variant_id
+    AND stock >= NEW.quantity;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Insufficient stock for variant %', NEW.variant_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_decrement_stock
+  AFTER INSERT ON order_items
+  FOR EACH ROW EXECUTE FUNCTION decrement_variant_stock();
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 003_auth_schema.sql ==========   & type supabase\migrations\003_auth_schema.sql ) 
+ 
+========== 003_auth_schema.sql ========== 
+-- ELBRO STORE - Auth and Admin Schema
+-- Profiles and Admin Users tables
+
+-- Profiles table (extends Supabase Auth users)
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name TEXT,
+  phone TEXT,
+  city TEXT,
+  address TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Admin Users table (role-based access control)
+CREATE TABLE admin_users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'manager')) DEFAULT 'manager',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id)
+);
+
+-- Enable RLS on profiles and admin_users
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+
+-- Profiles policies
+CREATE POLICY "Users can view own profile"
+  ON profiles FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile"
+  ON profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can insert own profile"
+  ON profiles FOR INSERT
+  WITH CHECK (auth.uid() = id);
+
+-- Admin users policies (only admins can view)
+CREATE POLICY "Admins can view admin_users"
+  ON admin_users FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users au
+      WHERE au.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Super admins can manage admin_users"
+  ON admin_users FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users au
+      WHERE au.user_id = auth.uid() AND au.role = 'super_admin'
+    )
+  );
+
+-- Trigger for updated_at on profiles
+CREATE TRIGGER update_profiles_updated_at
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 004_settings_schema.sql ==========   & type supabase\migrations\004_settings_schema.sql ) 
+ 
+========== 004_settings_schema.sql ========== 
+-- ELBRO STORE - Store Settings Schema
+-- Configurable store settings
+
+CREATE TABLE store_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  key TEXT NOT NULL UNIQUE,
+  value JSONB,
+  description TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE store_settings ENABLE ROW LEVEL SECURITY;
+
+-- Public read access for published settings
+CREATE POLICY "Public read store settings"
+  ON store_settings FOR SELECT
+  USING (TRUE);
+
+-- Admin write access
+CREATE POLICY "Admins can manage store settings"
+  ON store_settings FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM admin_users au
+      WHERE au.user_id = auth.uid()
+    )
+  );
+
+-- Trigger for updated_at
+CREATE TRIGGER update_store_settings_updated_at
+  BEFORE UPDATE ON store_settings
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Insert default settings
+INSERT INTO store_settings (key, value, description) VALUES
+  ('store_name', '"ELBRO STORE"', 'Store display name'),
+  ('whatsapp_number', '"212783865276"', 'WhatsApp number in international format without +'),
+  ('currency', '"MAD"', 'Currency code'),
+  ('delivery_fee_cents', '3500', 'Default delivery fee in cents'),
+  ('free_delivery_from_cents', '50000', 'Free delivery threshold in cents (null to disable)'),
+  ('logo_url', 'null', 'Store logo URL'),
+  ('instagram_url', 'null', 'Instagram profile URL'),
+  ('facebook_url', 'null', 'Facebook page URL'),
+  ('tiktok_url', 'null', 'TikTok profile URL'),
+  ('email', 'null', 'Contact email'),
+  ('phone', 'null', 'Contact phone'),
+  ('address', 'null', 'Store address'),
+  ('store_open', 'true', 'Whether store accepts orders')
+ON CONFLICT (key) DO NOTHING;
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 005_rls_policies.sql ==========   & type supabase\migrations\005_rls_policies.sql ) 
+ 
+========== 005_rls_policies.sql ========== 
+-- ELBRO STORE - Row Level Security Policies
+-- Secure access policies for all tables
+
+-- Enable RLS on all tables
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_images ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_variants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================
+-- CATEGORIES: Public read, Admin write
+-- ============================================================
+CREATE POLICY "Public read published categories"
+  ON categories FOR SELECT
+  USING (TRUE);
+
+CREATE POLICY "Admins manage categories"
+  ON categories FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- PRODUCTS: Public read published, Admin full access
+-- ============================================================
+CREATE POLICY "Public read published products"
+  ON products FOR SELECT
+  USING (published = TRUE);
+
+CREATE POLICY "Admins manage products"
+  ON products FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- PRODUCT IMAGES: Public read for published products, Admin full
+-- ============================================================
+CREATE POLICY "Public read product images"
+  ON product_images FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM products p
+      WHERE p.id = product_images.product_id
+      AND p.published = TRUE
+    )
+  );
+
+CREATE POLICY "Admins manage product images"
+  ON product_images FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- PRODUCT VARIANTS: Public read for published products, Admin full
+-- ============================================================
+CREATE POLICY "Public read product variants"
+  ON product_variants FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM products p
+      WHERE p.id = product_variants.product_id
+      AND p.published = TRUE
+    )
+  );
+
+CREATE POLICY "Admins manage product variants"
+  ON product_variants FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- ORDERS: Users read own, Admins full access
+-- ============================================================
+CREATE POLICY "Users read own orders"
+  ON orders FOR SELECT
+  USING (
+    customer_phone = (
+      SELECT phone FROM profiles WHERE id = auth.uid()
+    )
+    OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users create orders"
+  ON orders FOR INSERT
+  WITH CHECK (TRUE); -- Allow guest orders, validated server-side
+
+CREATE POLICY "Admins manage orders"
+  ON orders FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- ORDER ITEMS: Users read own (via order), Admins full
+-- ============================================================
+CREATE POLICY "Users read own order items"
+  ON order_items FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM orders o
+      WHERE o.id = order_items.order_id
+      AND (
+        o.customer_phone = (
+          SELECT phone FROM profiles WHERE id = auth.uid()
+        )
+        OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+      )
+    )
+  );
+
+CREATE POLICY "Admins manage order items"
+  ON order_items FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- STORAGE POLICIES (for product-images bucket)
+-- ============================================================
+-- Note: These are applied via Supabase Dashboard or storage policies
+-- Public read for product images
+-- Admin write for product images
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 006_functions.sql ==========   & type supabase\migrations\006_functions.sql ) 
+ 
+========== 006_functions.sql ========== 
+-- ELBRO STORE - Database Functions
+-- Helper functions and triggers
+
+-- Function to get store settings as a key-value map
+CREATE OR REPLACE FUNCTION get_store_settings()
+RETURNS JSONB AS $$
+DECLARE
+  settings JSONB := '{}'::JSONB;
+  rec RECORD;
+BEGIN
+  FOR rec IN SELECT key, value FROM store_settings LOOP
+    settings := jsonb_set(settings, ARRAY[rec.key], COALESCE(rec.value, 'null'::JSONB));
+  END LOOP;
+  RETURN settings;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to create order with items (atomic transaction)
+CREATE OR REPLACE FUNCTION create_order(
+  p_customer_name TEXT,
+  p_customer_phone TEXT,
+  p_customer_city TEXT,
+  p_customer_address TEXT,
+  p_customer_email TEXT,
+  p_delivery_instructions TEXT,
+  p_notes TEXT,
+  p_items JSONB, -- Array of {product_id, variant_id, piece_name, size, color, quantity, unit_price_cents}
+  p_delivery_fee_cents INTEGER DEFAULT 0
+)
+RETURNS UUID AS $$
+DECLARE
+  v_order_id UUID;
+  v_order_ref TEXT;
+  v_subtotal_cents INTEGER := 0;
+  v_total_cents INTEGER;
+  v_item JSONB;
+BEGIN
+  -- Generate order reference
+  v_order_ref := 'ELBRO-' || TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS') || '-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 6));
+
+  -- Calculate subtotal from items
+  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
+    v_subtotal_cents := v_subtotal_cents + (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER;
+  END LOOP;
+
+  v_total_cents := v_subtotal_cents + p_delivery_fee_cents;
+
+  -- Create order
+  INSERT INTO orders (
+    order_ref,
+    customer_name,
+    customer_phone,
+    customer_city,
+    customer_address,
+    customer_email,
+    delivery_instructions,
+    notes,
+    subtotal_cents,
+    delivery_fee_cents,
+    total_cents,
+    status
+  ) VALUES (
+    v_order_ref,
+    p_customer_name,
+    p_customer_phone,
+    p_customer_city,
+    p_customer_address,
+    p_customer_email,
+    p_delivery_instructions,
+    p_notes,
+    v_subtotal_cents,
+    p_delivery_fee_cents,
+    v_total_cents,
+    'NEW'
+  ) RETURNING id INTO v_order_id;
+
+  -- Create order items
+  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
+    INSERT INTO order_items (
+      order_id,
+      product_id,
+      variant_id,
+      piece_name,
+      size,
+      color,
+      quantity,
+      unit_price_cents,
+      subtotal_cents
+    ) VALUES (
+      v_order_id,
+      (v_item->>'product_id')::UUID,
+      CASE WHEN (v_item->>'variant_id') IS NOT NULL THEN (v_item->>'variant_id')::UUID ELSE NULL END,
+      v_item->>'piece_name',
+      v_item->>'size',
+      v_item->>'color',
+      (v_item->>'quantity')::INTEGER,
+      (v_item->>'unit_price_cents')::INTEGER,
+      (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER
+    );
+  END LOOP;
+
+  RETURN v_order_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to update order status with validation
+CREATE OR REPLACE FUNCTION update_order_status(
+  p_order_id UUID,
+  p_new_status TEXT,
+  p_admin_user_id UUID
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_current_status TEXT;
+  v_is_admin BOOLEAN;
+BEGIN
+  -- Check admin permission
+  SELECT EXISTS(SELECT 1 FROM admin_users WHERE user_id = p_admin_user_id) INTO v_is_admin;
+  IF NOT v_is_admin THEN
+    RAISE EXCEPTION 'Unauthorized: Admin access required';
+  END IF;
+
+  -- Get current status
+  SELECT status INTO v_current_status FROM orders WHERE id = p_order_id;
+  IF v_current_status IS NULL THEN
+    RAISE EXCEPTION 'Order not found';
+  END IF;
+
+  -- Validate status transition
+  IF v_current_status = 'CANCELLED' AND p_new_status != 'CANCELLED' THEN
+    RAISE EXCEPTION 'Cannot change status from CANCELLED';
+  END IF;
+
+  IF v_current_status = 'DELIVERED' AND p_new_status != 'DELIVERED' THEN
+    RAISE EXCEPTION 'Cannot change status from DELIVERED';
+  END IF;
+
+  -- Update status
+  UPDATE orders
+  SET status = p_new_status, updated_at = NOW()
+  WHERE id = p_order_id;
+
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to mark order as synced to Google Sheets
+CREATE OR REPLACE FUNCTION mark_order_synced(
+  p_order_id UUID,
+  p_sheets_order_id TEXT
+)
+RETURNS VOID AS $$
+BEGIN
+  UPDATE orders
+  SET google_sheets_synced = TRUE,
+      google_sheets_order_id = p_sheets_order_id,
+      updated_at = NOW()
+  WHERE id = p_order_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get product with variants and images (for product detail)
+CREATE OR REPLACE FUNCTION get_product_detail(p_slug TEXT)
+RETURNS JSONB AS $$
+DECLARE
+  v_result JSONB;
+BEGIN
+  SELECT jsonb_build_object(
+    'product', to_jsonb(p),
+    'images', (
+      SELECT COALESCE(JSONB_AGG(to_jsonb(i) ORDER BY i.display_order), '[]'::JSONB)
+      FROM product_images i
+      WHERE i.product_id = p.id
+    ),
+    'variants', (
+      SELECT COALESCE(JSONB_AGG(to_jsonb(v) ORDER BY v.size, v.color), '[]'::JSONB)
+      FROM product_variants v
+      WHERE v.product_id = p.id
+    ),
+    'category', to_jsonb(c)
+  ) INTO v_result
+  FROM products p
+  JOIN categories c ON c.id = p.category_id
+  WHERE p.slug = p_slug AND p.published = TRUE;
+
+  RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get products with filters (for listing)
+CREATE OR REPLACE FUNCTION get_products_filtered(
+  p_category_slug TEXT DEFAULT NULL,
+  p_search TEXT DEFAULT NULL,
+  p_featured BOOLEAN DEFAULT NULL,
+  p_best_seller BOOLEAN DEFAULT NULL,
+  p_sort TEXT DEFAULT 'newest', -- newest, price_asc, price_desc, best_seller
+  p_limit INTEGER DEFAULT 20,
+  p_offset INTEGER DEFAULT 0
+)
+RETURNS JSONB AS $$
+DECLARE
+  v_query TEXT;
+  v_count INTEGER;
+  v_results JSONB;
+BEGIN
+  -- Build dynamic query
+  v_query := '
+    SELECT jsonb_build_object(
+      ''products'', COALESCE(JSONB_AGG(to_jsonb(p) ORDER BY
+        CASE
+          WHEN $6 = ''price_asc'' THEN p.price_cents
+          WHEN $6 = ''price_desc'' THEN p.price_cents DESC
+          WHEN $6 = ''best_seller'' THEN p.best_seller DESC
+          ELSE p.created_at DESC
+        END
+      ), ''[]''::JSONB),
+      ''total'', COUNT(*) OVER()
+    )
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    WHERE p.published = TRUE
+  ';
+
+  IF p_category_slug IS NOT NULL THEN
+    v_query := v_query || ' AND c.slug = $1';
+  END IF;
+
+  IF p_search IS NOT NULL THEN
+    v_query := v_query || ' AND (p.name ILIKE $2 OR p.description ILIKE $2)';
+  END IF;
+
+  IF p_featured IS NOT NULL THEN
+    v_query := v_query || ' AND p.featured = $3';
+  END IF;
+
+  IF p_best_seller IS NOT NULL THEN
+    v_query := v_query || ' AND p.best_seller = $4';
+  END IF;
+
+  v_query := v_query || ' LIMIT $5 OFFSET $6';
+
+  -- This is a simplified version; in production use proper dynamic SQL
+  RETURN '{}'::JSONB;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 007_seed_data.sql ==========   & type supabase\migrations\007_seed_data.sql ) 
+ 
+========== 007_seed_data.sql ========== 
+-- ELBRO STORE - Seed Data
+-- Initial categories, products, variants based on original elbro-hero.html
+
+-- Insert categories
+INSERT INTO categories (name, slug, description, display_order) VALUES
+  ('Ensembles', 'ensembles', 'Ensembles complets coordonnés', 1),
+  ('Vêtements', 'vetements', 'Pièces individuelles', 2),
+  ('Accessoires', 'accessoires', 'Accessoires et compléments', 3),
+  ('Chaussures', 'chaussures', 'Sneakers et chaussures', 4)
+ON CONFLICT (slug) DO NOTHING;
+
+-- Get category IDs for reference
+DO $$
+DECLARE
+  cat_ensembles UUID;
+  cat_vetements UUID;
+  cat_accessoires UUID;
+  cat_chaussures UUID;
+  prod_outfit UUID;
+  prod_hoodie UUID;
+  prod_cargo UUID;
+  prod_cap UUID;
+  prod_sneakers UUID;
+BEGIN
+  SELECT id INTO cat_ensembles FROM categories WHERE slug = 'ensembles';
+  SELECT id INTO cat_vetements FROM categories WHERE slug = 'vetements';
+  SELECT id INTO cat_accessoires FROM categories WHERE slug = 'accessoires';
+  SELECT id INTO cat_chaussures FROM categories WHERE slug = 'chaussures';
+
+  -- Insert main outfit product
+  INSERT INTO products (category_id, name, slug, description, full_description, material, price_cents, sale_price_cents, sku, featured, best_seller, published)
+  VALUES (
+    cat_ensembles,
+    'ELBRO PREMIUM OUTFIT',
+    'elbro-premium-outfit',
+    'Ensemble premium 4 pièces : casquette, hoodie, cargo et sneakers.',
+    'Le look complet ELBRO : casquette, hoodie, pantalon cargo et sneakers, pensés pour être portés ensemble. Prix ensemble avantageux par rapport à l''achat séparé.',
+    'Coton premium, textile technique',
+    49900,  -- 499 MAD
+    69900,  -- 699 MAD (old price)
+    'ELBRO-001',
+    TRUE,
+    TRUE,
+    TRUE
+  ) ON CONFLICT (slug) DO UPDATE SET
+    price_cents = EXCLUDED.price_cents,
+    sale_price_cents = EXCLUDED.sale_price_cents
+  RETURNING id INTO prod_outfit;
+
+  -- Insert individual pieces
+  INSERT INTO products (category_id, name, slug, description, full_description, material, price_cents, sale_price_cents, sku, featured, best_seller, published)
+  VALUES
+    (cat_accessoires, 'Casquette Premium', 'casquette-premium', 'Casquette premium.', 'Casquette baseball premium, broderie ELBRO.', 'Coton twill', 9900, NULL, 'CAP-001', FALSE, FALSE, TRUE),
+    (cat_vetements, 'Hoodie Premium', 'hoodie-premium', 'Hoodie en coton premium.', 'Hoodie zippé en coton épais, coupe oversize.', 'Coton épais 400 g', 24900, NULL, 'HOODIE-001', FALSE, FALSE, TRUE),
+    (cat_vetements, 'Pantalon Cargo Premium', 'pantalon-cargo-premium', 'Pantalon cargo premium.', 'Pantalon cargo multi-poches, coupe droite.', 'Coton sergé', 19900, NULL, 'CARGO-001', FALSE, FALSE, TRUE),
+    (cat_chaussures, 'Sneakers Premium', 'sneakers-premium', 'Sneakers premium.', 'Sneakers montantes, semelle confort.', 'Synthétique premium', 19900, NULL, 'SNEAKERS-001', FALSE, FALSE, TRUE)
+  ON CONFLICT (slug) DO UPDATE SET
+    price_cents = EXCLUDED.price_cents
+  RETURNING id INTO prod_hoodie; -- Only returns last, we'll select them
+
+  -- Get product IDs for variants
+  SELECT id INTO prod_outfit FROM products WHERE slug = 'elbro-premium-outfit';
+  SELECT id INTO prod_cap FROM products WHERE slug = 'casquette-premium';
+  SELECT id INTO prod_hoodie FROM products WHERE slug = 'hoodie-premium';
+  SELECT id INTO prod_cargo FROM products WHERE slug = 'pantalon-cargo-premium';
+  SELECT id INTO prod_sneakers FROM products WHERE slug = 'sneakers-premium';
+
+  -- Outfit variants (ONE SIZE for the complete outfit)
+  INSERT INTO product_variants (product_id, size, color, stock, sku)
+  VALUES
+    (prod_outfit, 'ONE SIZE', 'Complet', 50, 'ELBRO-001-COMPLET')
+  ON CONFLICT (product_id, size, color) DO NOTHING;
+
+  -- Cap variants
+  INSERT INTO product_variants (product_id, size, color, stock, sku)
+  VALUES
+    (prod_cap, 'ONE SIZE', 'Noir', 100, 'CAP-001-NOIR')
+  ON CONFLICT (product_id, size, color) DO NOTHING;
+
+  -- Hoodie variants
+  INSERT INTO product_variants (product_id, size, color, stock, sku)
+  VALUES
+    (prod_hoodie, 'S', 'Noir', 30, 'HOODIE-001-S-NOIR'),
+    (prod_hoodie, 'M', 'Noir', 40, 'HOODIE-001-M-NOIR'),
+    (prod_hoodie, 'L', 'Noir', 40, 'HOODIE-001-L-NOIR'),
+    (prod_hoodie, 'XL', 'Noir', 30, 'HOODIE-001-XL-NOIR'),
+    (prod_hoodie, 'XXL', 'Noir', 20, 'HOODIE-001-XXL-NOIR'),
+    (prod_hoodie, 'S', 'Blanc', 25, 'HOODIE-001-S-BLANC'),
+    (prod_hoodie, 'M', 'Blanc', 35, 'HOODIE-001-M-BLANC'),
+    (prod_hoodie, 'L', 'Blanc', 35, 'HOODIE-001-L-BLANC'),
+    (prod_hoodie, 'XL', 'Blanc', 25, 'HOODIE-001-XL-BLANC'),
+    (prod_hoodie, 'XXL', 'Blanc', 15, 'HOODIE-001-XXL-BLANC')
+  ON CONFLICT (product_id, size, color) DO NOTHING;
+
+  -- Cargo variants
+  INSERT INTO product_variants (product_id, size, color, stock, sku)
+  VALUES
+    (prod_cargo, 'S', 'Noir', 30, 'CARGO-001-S-NOIR'),
+    (prod_cargo, 'M', 'Noir', 40, 'CARGO-001-M-NOIR'),
+    (prod_cargo, 'L', 'Noir', 40, 'CARGO-001-L-NOIR'),
+    (prod_cargo, 'XL', 'Noir', 30, 'CARGO-001-XL-NOIR'),
+    (prod_cargo, 'XXL', 'Noir', 20, 'CARGO-001-XXL-NOIR')
+  ON CONFLICT (product_id, size, color) DO NOTHING;
+
+  -- Sneakers variants
+  INSERT INTO product_variants (product_id, size, color, stock, sku)
+  VALUES
+    (prod_sneakers, '39', 'Noir', 20, 'SNEAKERS-001-39-NOIR'),
+    (prod_sneakers, '40', 'Noir', 25, 'SNEAKERS-001-40-NOIR'),
+    (prod_sneakers, '41', 'Noir', 30, 'SNEAKERS-001-41-NOIR'),
+    (prod_sneakers, '42', 'Noir', 30, 'SNEAKERS-001-42-NOIR'),
+    (prod_sneakers, '43', 'Noir', 25, 'SNEAKERS-001-43-NOIR'),
+    (prod_sneakers, '44', 'Noir', 20, 'SNEAKERS-001-44-NOIR')
+  ON CONFLICT (product_id, size, color) DO NOTHING;
+
+  -- Placeholder images (to be replaced with real uploads)
+  -- Main outfit image
+  INSERT INTO product_images (product_id, url, alt_text, is_main, display_order)
+  VALUES
+    (prod_outfit, '/images/outfit-main.jpg', 'ELBRO PREMIUM OUTFIT - Look complet', TRUE, 0),
+    (prod_cap, '/images/cap-main.jpg', 'Casquette Premium - Noir', TRUE, 0),
+    (prod_hoodie, '/images/hoodie-main.jpg', 'Hoodie Premium - Noir', TRUE, 0),
+    (prod_cargo, '/images/cargo-main.jpg', 'Pantalon Cargo Premium - Noir', TRUE, 0),
+    (prod_sneakers, '/images/sneakers-main.jpg', 'Sneakers Premium - Noir', TRUE, 0)
+  ON CONFLICT DO NOTHING;
+
+END $$;
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 008_orders_user_tracking.sql ==========   & type supabase\migrations\008_orders_user_tracking.sql ) 
+ 
+========== 008_orders_user_tracking.sql ========== 
+-- ELBRO STORE - Migration 008: Orders User Tracking & Payment Fields
+-- Adds user_id foreign key, tracking fields, discount/coupon fields to orders table
+-- Updates RLS policies to use user_id instead of phone matching
+-- Compatible with Cash on Delivery (no payment gateway)
+
+-- ============================================================
+-- 1. ADD COLUMNS TO ORDERS TABLE
+-- ============================================================
+
+-- Add user_id column (nullable for existing guest orders)
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+
+-- Add tracking fields
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS tracking_number TEXT,
+ADD COLUMN IF NOT EXISTS carrier TEXT,
+ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ;
+
+-- Add discount/coupon fields (for future coupon system)
+ALTER TABLE orders
+ADD COLUMN IF NOT EXISTS discount_cents INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
+ADD COLUMN IF NOT EXISTS coupon_id UUID; -- Will reference coupons table in future migration
+
+-- Add index for user_id lookups
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+
+-- ============================================================
+-- 2. BACKFILL user_id FOR EXISTING ORDERS
+-- ============================================================
+-- Strategy: Match orders to users via customer_phone = profiles.phone
+-- AND customer_email = profiles.email (when available)
+-- Only fills where there's an exact match and user doesn't already have user_id
+-- Guest orders (no matching profile) will keep user_id = NULL
+--
+-- IMPORTANT: This backfill only runs ONCE during migration.
+-- Future guest order linking requires explicit user action via
+-- link_guest_orders_to_user() which now verifies email + phone.
+
+UPDATE orders o
+SET user_id = p.id
+FROM profiles p
+WHERE o.user_id IS NULL
+  AND o.customer_phone = p.phone
+  AND (o.customer_email IS NULL OR o.customer_email = p.email)
+  AND p.id IS NOT NULL;
+
+-- ============================================================
+-- 3. UPDATE RLS POLICIES ON ORDERS TABLE
+-- ============================================================
+
+-- Drop existing policies
+DROP POLICY IF EXISTS "Users read own orders" ON orders;
+DROP POLICY IF EXISTS "Users create orders" ON orders;
+DROP POLICY IF EXISTS "Admins manage orders" ON orders;
+
+-- Policy 1: Users can read their own orders (via user_id)
+-- Guest orders (user_id IS NULL) are NOT readable by users
+-- Authenticated orders are readable by the owning user
+CREATE POLICY "Users read own orders"
+  ON orders FOR SELECT
+  USING (
+    user_id = auth.uid()
+    OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- Policy 2: Anyone can create orders (guest or authenticated)
+-- Application layer validates required fields
+CREATE POLICY "Users create orders"
+  ON orders FOR INSERT
+  WITH CHECK (TRUE);
+
+-- Policy 3: Admins have full access to all orders
+CREATE POLICY "Admins manage orders"
+  ON orders FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- 4. UPDATE RLS POLICIES ON ORDER_ITEMS TABLE
+-- ============================================================
+
+-- Drop existing policies
+DROP POLICY IF EXISTS "Users read own order items" ON order_items;
+DROP POLICY IF EXISTS "Admins manage order items" ON order_items;
+
+-- Policy 1: Users can read order items for their own orders
+-- Joins through orders table using user_id
+CREATE POLICY "Users read own order items"
+  ON order_items FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM orders o
+      WHERE o.id = order_items.order_id
+      AND (
+        o.user_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+      )
+    )
+  );
+
+-- Policy 2: Admins have full access
+CREATE POLICY "Admins manage order items"
+  ON order_items FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- 5. ADD HELPER FUNCTION FOR ORDER CREATION WITH USER_ID
+-- ============================================================
+
+-- Update create_order function to accept optional user_id
+-- This replaces the existing function from migration 006
+CREATE OR REPLACE FUNCTION create_order(
+  p_customer_name TEXT,
+  p_customer_phone TEXT,
+  p_customer_city TEXT,
+  p_customer_address TEXT,
+  p_customer_email TEXT,
+  p_delivery_instructions TEXT,
+  p_notes TEXT,
+  p_items JSONB,
+  p_delivery_fee_cents INTEGER DEFAULT 0,
+  p_user_id UUID DEFAULT NULL,  -- NEW: optional authenticated user
+  p_discount_cents INTEGER DEFAULT 0,  -- NEW: discount amount
+  p_coupon_id UUID DEFAULT NULL  -- NEW: coupon reference
+)
+RETURNS UUID AS $$
+DECLARE
+  v_order_id UUID;
+  v_order_ref TEXT;
+  v_subtotal_cents INTEGER := 0;
+  v_total_cents INTEGER;
+  v_item JSONB;
+BEGIN
+  -- Generate order reference
+  v_order_ref := 'ELBRO-' || TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS') || '-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 6));
+
+  -- Calculate subtotal from items
+  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
+    v_subtotal_cents := v_subtotal_cents + (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER;
+  END LOOP;
+
+  v_total_cents := v_subtotal_cents + p_delivery_fee_cents - p_discount_cents;
+  IF v_total_cents < 0 THEN v_total_cents := 0; END IF;
+
+  -- Create order with new fields
+  INSERT INTO orders (
+    order_ref,
+    customer_name,
+    customer_phone,
+    customer_city,
+    customer_address,
+    customer_email,
+    delivery_instructions,
+    notes,
+    subtotal_cents,
+    delivery_fee_cents,
+    total_cents,
+    status,
+    user_id,           -- NEW
+    discount_cents,    -- NEW
+    coupon_id          -- NEW
+  ) VALUES (
+    v_order_ref,
+    p_customer_name,
+    p_customer_phone,
+    p_customer_city,
+    p_customer_address,
+    p_customer_email,
+    p_delivery_instructions,
+    p_notes,
+    v_subtotal_cents,
+    p_delivery_fee_cents,
+    v_total_cents,
+    'NEW',
+    p_user_id,         -- NEW
+    p_discount_cents,  -- NEW
+    p_coupon_id        -- NEW
+  ) RETURNING id INTO v_order_id;
+
+  -- Create order items
+  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
+    INSERT INTO order_items (
+      order_id,
+      product_id,
+      variant_id,
+      piece_name,
+      size,
+      color,
+      quantity,
+      unit_price_cents,
+      subtotal_cents
+    ) VALUES (
+      v_order_id,
+      (v_item->>'product_id')::UUID,
+      CASE WHEN (v_item->>'variant_id') IS NOT NULL THEN (v_item->>'variant_id')::UUID ELSE NULL END,
+      v_item->>'piece_name',
+      v_item->>'size',
+      v_item->>'color',
+      (v_item->>'quantity')::INTEGER,
+      (v_item->>'unit_price_cents')::INTEGER,
+      (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER
+    );
+  END LOOP;
+
+  RETURN v_order_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 6. ADD HELPER FUNCTION TO UPDATE ORDER USER_ID (for linking guest orders after signup)
+-- ============================================================
+-- Safely links guest orders to authenticated user by verifying BOTH phone AND email
+-- Only links orders where: user_id IS NULL AND customer_phone matches profile phone
+-- AND (customer_email IS NULL OR customer_email matches profile email)
+-- This prevents phone collision attacks where multiple users share a phone number.
+
+CREATE OR REPLACE FUNCTION link_guest_orders_to_user(p_user_id UUID, p_phone TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+  v_updated INTEGER := 0;
+  v_email TEXT;
+BEGIN
+  -- Get user's email from auth.users
+  SELECT email INTO v_email FROM auth.users WHERE id = p_user_id;
+
+  -- Only link orders matching BOTH phone AND email (when email exists)
+  UPDATE orders
+  SET user_id = p_user_id
+  WHERE user_id IS NULL
+    AND customer_phone = p_phone
+    AND (v_email IS NULL OR customer_email = v_email);
+
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 7. GRANT PERMISSIONS
+-- ============================================================
+
+GRANT EXECUTE ON FUNCTION create_order TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION link_guest_orders_to_user TO authenticated;
+
+-- ============================================================
+-- 8. ROLLBACK (Run this section to undo migration 008)
+-- ============================================================
+-- WARNING: This will permanently remove columns and functions!
+-- Only run if absolutely necessary after verifying no data loss.
+-- ============================================================
+
+-- Drop functions
+DROP FUNCTION IF EXISTS link_guest_orders_to_user(UUID, TEXT);
+DROP FUNCTION IF EXISTS create_order(
+  TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB, INTEGER, UUID, INTEGER, UUID
+);
+
+-- Recreate original create_order function (without new params)
+CREATE OR REPLACE FUNCTION create_order(
+  p_customer_name TEXT,
+  p_customer_phone TEXT,
+  p_customer_city TEXT,
+  p_customer_address TEXT,
+  p_customer_email TEXT,
+  p_delivery_instructions TEXT,
+  p_notes TEXT,
+  p_items JSONB,
+  p_delivery_fee_cents INTEGER DEFAULT 0
+)
+RETURNS UUID AS $$
+DECLARE
+  v_order_id UUID;
+  v_order_ref TEXT;
+  v_subtotal_cents INTEGER := 0;
+  v_total_cents INTEGER;
+  v_item JSONB;
+BEGIN
+  v_order_ref := 'ELBRO-' || TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS') || '-' || UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 6));
+
+  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
+    v_subtotal_cents := v_subtotal_cents + (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER;
+  END LOOP;
+
+  v_total_cents := v_subtotal_cents + p_delivery_fee_cents;
+
+  INSERT INTO orders (
+    order_ref,
+    customer_name,
+    customer_phone,
+    customer_city,
+    customer_address,
+    customer_email,
+    delivery_instructions,
+    notes,
+    subtotal_cents,
+    delivery_fee_cents,
+    total_cents,
+    status
+  ) VALUES (
+    v_order_ref,
+    p_customer_name,
+    p_customer_phone,
+    p_customer_city,
+    p_customer_address,
+    p_customer_email,
+    p_delivery_instructions,
+    p_notes,
+    v_subtotal_cents,
+    p_delivery_fee_cents,
+    v_total_cents,
+    'NEW'
+  ) RETURNING id INTO v_order_id;
+
+  FOR v_item IN SELECT * FROM JSONB_ARRAY_ELEMENTS(p_items) LOOP
+    INSERT INTO order_items (
+      order_id,
+      product_id,
+      variant_id,
+      piece_name,
+      size,
+      color,
+      quantity,
+      unit_price_cents,
+      subtotal_cents
+    ) VALUES (
+      v_order_id,
+      (v_item->>'product_id')::UUID,
+      CASE WHEN (v_item->>'variant_id') IS NOT NULL THEN (v_item->>'variant_id')::UUID ELSE NULL END,
+      v_item->>'piece_name',
+      v_item->>'size',
+      v_item->>'color',
+      (v_item->>'quantity')::INTEGER,
+      (v_item->>'unit_price_cents')::INTEGER,
+      (v_item->>'quantity')::INTEGER * (v_item->>'unit_price_cents')::INTEGER
+    );
+  END LOOP;
+
+  RETURN v_order_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION create_order TO anon, authenticated;
+
+-- Drop index
+DROP INDEX IF EXISTS idx_orders_user_id;
+
+-- Drop columns
+ALTER TABLE orders DROP COLUMN IF EXISTS user_id;
+ALTER TABLE orders DROP COLUMN IF EXISTS tracking_number;
+ALTER TABLE orders DROP COLUMN IF EXISTS carrier;
+ALTER TABLE orders DROP COLUMN IF EXISTS shipped_at;
+ALTER TABLE orders DROP COLUMN IF EXISTS discount_cents;
+ALTER TABLE orders DROP COLUMN IF EXISTS coupon_id;
+
+-- Restore original RLS policies on orders
+DROP POLICY IF EXISTS "Users read own orders" ON orders;
+DROP POLICY IF EXISTS "Users create orders" ON orders;
+DROP POLICY IF EXISTS "Admins manage orders" ON orders;
+
+CREATE POLICY "Users read own orders"
+  ON orders FOR SELECT
+  USING (
+    customer_phone = auth.jwt()->>'phone'
+    OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Users create orders"
+  ON orders FOR INSERT
+  WITH CHECK (TRUE);
+
+CREATE POLICY "Admins manage orders"
+  ON orders FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- Restore original RLS policies on order_items
+DROP POLICY IF EXISTS "Users read own order items" ON order_items;
+DROP POLICY IF EXISTS "Admins manage order items" ON order_items;
+
+CREATE POLICY "Users read own order items"
+  ON order_items FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM orders o
+      WHERE o.id = order_items.order_id
+      AND o.customer_phone = auth.jwt()->>'phone'
+    )
+    OR EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+CREATE POLICY "Admins manage order items"
+  ON order_items FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 009_coupons.sql ==========   & type supabase\migrations\009_coupons.sql ) 
+ 
+========== 009_coupons.sql ========== 
+-- ELBRO STORE - Migration 009: Coupons System
+-- Adds coupons table with validation rules, usage tracking, and admin management
+-- Compatible with Cash on Delivery (discounts applied at order creation)
+
+-- ============================================================
+-- 1. CREATE COUPONS TABLE
+-- ============================================================
+
+CREATE TABLE coupons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT NOT NULL UNIQUE, -- e.g., "WELCOME10", "SUMMER20"
+  name TEXT NOT NULL, -- e.g., "Welcome Discount", "Summer Sale"
+  description TEXT,
+
+  -- Discount configuration
+  discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'fixed_amount')),
+  discount_value INTEGER NOT NULL CHECK (discount_value > 0), -- percentage (1-100) or amount in cents
+
+  -- Usage limits
+  usage_limit INTEGER, -- NULL = unlimited total uses
+  usage_limit_per_user INTEGER DEFAULT 1, -- NULL = unlimited per user
+  usage_count INTEGER NOT NULL DEFAULT 0,
+
+  -- Validity period
+  valid_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  valid_until TIMESTAMPTZ, -- NULL = no expiration
+
+  -- Conditions
+  minimum_order_cents INTEGER NOT NULL DEFAULT 0 CHECK (minimum_order_cents >= 0),
+  applicable_categories UUID[] DEFAULT '{}', -- Empty = all categories
+  applicable_products UUID[] DEFAULT '{}', -- Empty = all products
+  excluded_products UUID[] DEFAULT '{}',
+
+  -- Status
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_public BOOLEAN NOT NULL DEFAULT TRUE, -- If false, only admin can apply
+
+  -- Metadata
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- 2. CREATE COUPON USAGE TRACKING TABLE
+-- ============================================================
+
+CREATE TABLE coupon_usages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  coupon_id UUID NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL, -- NULL for guest
+  order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+  discount_applied_cents INTEGER NOT NULL CHECK (discount_applied_cents >= 0),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- 3. INDEXES
+-- ============================================================
+
+CREATE INDEX idx_coupons_code ON coupons(code);
+CREATE INDEX idx_coupons_active ON coupons(is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_coupons_valid_dates ON coupons(valid_from, valid_until);
+CREATE INDEX idx_coupon_usages_coupon_id ON coupon_usages(coupon_id);
+CREATE INDEX idx_coupon_usages_user_id ON coupon_usages(user_id);
+CREATE INDEX idx_coupon_usages_order_id ON coupon_usages(order_id);
+
+-- ============================================================
+-- 4. TRIGGERS
+-- ============================================================
+
+CREATE TRIGGER update_coupons_updated_at
+  BEFORE UPDATE ON coupons
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- 5. RLS POLICIES
+-- ============================================================
+
+ALTER TABLE coupons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE coupon_usages ENABLE ROW LEVEL SECURITY;
+
+-- Coupons policies
+-- Public coupons: anyone can read active, valid public coupons
+CREATE POLICY "Public coupons readable"
+  ON coupons FOR SELECT
+  USING (
+    is_active = TRUE
+    AND is_public = TRUE
+    AND valid_from <= NOW()
+    AND (valid_until IS NULL OR valid_until >= NOW())
+  );
+
+-- Admin users: full access to all coupons
+CREATE POLICY "Admins manage coupons"
+  ON coupons FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- Coupon usages policies
+-- Users can view their own coupon usages
+CREATE POLICY "Users view own coupon usages"
+  ON coupon_usages FOR SELECT
+  USING (user_id = auth.uid());
+
+-- Admins can view all coupon usages
+CREATE POLICY "Admins view all coupon usages"
+  ON coupon_usages FOR SELECT
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- System can insert coupon usage (via function)
+CREATE POLICY "System inserts coupon usage"
+  ON coupon_usages FOR INSERT
+  WITH CHECK (TRUE);
+
+-- ============================================================
+-- 6. HELPER FUNCTIONS
+-- ============================================================
+
+-- Validate coupon and calculate discount
+CREATE OR REPLACE FUNCTION validate_coupon(
+  p_code TEXT,
+  p_user_id UUID DEFAULT NULL,
+  p_order_subtotal_cents INTEGER,
+  p_category_ids UUID[] DEFAULT '{}',
+  p_product_ids UUID[] DEFAULT '{}'
+)
+RETURNS TABLE (
+  valid BOOLEAN,
+  coupon_id UUID,
+  discount_type TEXT,
+  discount_value INTEGER,
+  discount_cents INTEGER,
+  error_message TEXT
+) AS $$
+DECLARE
+  v_coupon RECORD;
+  v_user_usage_count INTEGER := 0;
+  v_discount_cents INTEGER := 0;
+  v_min_order_ok BOOLEAN := TRUE;
+  v_category_ok BOOLEAN := TRUE;
+  v_product_ok BOOLEAN := TRUE;
+  v_excluded_ok BOOLEAN := TRUE;
+BEGIN
+  -- Find coupon by code (case insensitive)
+  SELECT * INTO v_coupon
+  FROM coupons
+  WHERE code ILIKE p_code
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN QUERY SELECT FALSE, NULL, NULL, NULL, NULL, 'Coupon invalide';
+  END IF;
+
+  -- Check if active
+  IF NOT v_coupon.is_active THEN
+    RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Coupon inactif';
+  END IF;
+
+  -- Check validity period
+  IF v_coupon.valid_from > NOW() THEN
+    RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Coupon pas encore valide';
+  END IF;
+
+  IF v_coupon.valid_until IS NOT NULL AND v_coupon.valid_until < NOW() THEN
+    RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Coupon expiré';
+  END IF;
+
+  -- Check minimum order
+  IF p_order_subtotal_cents < v_coupon.minimum_order_cents THEN
+    RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL,
+      'Minimum de commande requis: ' || (v_coupon.minimum_order_cents / 100) || ' MAD';
+  END IF;
+
+  -- Check total usage limit
+  IF v_coupon.usage_limit IS NOT NULL AND v_coupon.usage_count >= v_coupon.usage_limit THEN
+    RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Limite d\'utilisation atteinte';
+  END IF;
+
+  -- Check per-user usage limit (if authenticated)
+  IF p_user_id IS NOT NULL AND v_coupon.usage_limit_per_user IS NOT NULL THEN
+    SELECT COUNT(*) INTO v_user_usage_count
+    FROM coupon_usages
+    WHERE coupon_id = v_coupon.id AND user_id = p_user_id;
+
+    IF v_user_usage_count >= v_coupon.usage_limit_per_user THEN
+      RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL,
+        'Vous avez déjà utilisé ce coupon ' || v_coupon.usage_limit_per_user || ' fois';
+    END IF;
+  END IF;
+
+  -- Check category applicability
+  IF array_length(v_coupon.applicable_categories, 1) > 0 THEN
+    v_category_ok := FALSE;
+    FOR i IN 1..array_length(p_category_ids, 1) LOOP
+      IF p_category_ids[i] = ANY(v_coupon.applicable_categories) THEN
+        v_category_ok := TRUE;
+        EXIT;
+      END IF;
+    END LOOP;
+    IF NOT v_category_ok THEN
+      RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Coupon non applicable aux produits sélectionnés';
+    END IF;
+  END IF;
+
+  -- Check product applicability
+  IF array_length(v_coupon.applicable_products, 1) > 0 THEN
+    v_product_ok := FALSE;
+    FOR i IN 1..array_length(p_product_ids, 1) LOOP
+      IF p_product_ids[i] = ANY(v_coupon.applicable_products) THEN
+        v_product_ok := TRUE;
+        EXIT;
+      END IF;
+    END LOOP;
+    IF NOT v_product_ok THEN
+      RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Coupon non applicable aux produits sélectionnés';
+    END IF;
+  END IF;
+
+  -- Check excluded products
+  IF array_length(v_coupon.excluded_products, 1) > 0 THEN
+    v_excluded_ok := TRUE;
+    FOR i IN 1..array_length(p_product_ids, 1) LOOP
+      IF p_product_ids[i] = ANY(v_coupon.excluded_products) THEN
+        v_excluded_ok := FALSE;
+        EXIT;
+      END IF;
+    END LOOP;
+    IF NOT v_excluded_ok THEN
+      RETURN QUERY SELECT FALSE, v_coupon.id, NULL, NULL, NULL, 'Coupon non applicable à certains produits';
+    END IF;
+  END IF;
+
+  -- Calculate discount
+  IF v_coupon.discount_type = 'percentage' THEN
+    v_discount_cents := (p_order_subtotal_cents * v_coupon.discount_value) / 100;
+  ELSE
+    v_discount_cents := v_coupon.discount_value;
+  END IF;
+
+  -- Cap discount at subtotal
+  IF v_discount_cents > p_order_subtotal_cents THEN
+    v_discount_cents := p_order_subtotal_cents;
+  END IF;
+
+  RETURN QUERY SELECT
+    TRUE,
+    v_coupon.id,
+    v_coupon.discount_type,
+    v_coupon.discount_value,
+    v_discount_cents,
+    NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Record coupon usage
+CREATE OR REPLACE FUNCTION record_coupon_usage(
+  p_coupon_id UUID,
+  p_user_id UUID DEFAULT NULL,
+  p_order_id UUID,
+  p_discount_cents INTEGER
+)
+RETURNS VOID AS $$
+BEGIN
+  INSERT INTO coupon_usages (coupon_id, user_id, order_id, discount_applied_cents)
+  VALUES (p_coupon_id, p_user_id, p_order_id, p_discount_cents);
+
+  -- Increment usage count
+  UPDATE coupons
+  SET usage_count = usage_count + 1
+  WHERE id = p_coupon_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get available coupons for user (public + their private)
+CREATE OR REPLACE FUNCTION get_available_coupons(p_user_id UUID DEFAULT NULL)
+RETURNS TABLE (
+  id UUID,
+  code TEXT,
+  name TEXT,
+  description TEXT,
+  discount_type TEXT,
+  discount_value INTEGER,
+  minimum_order_cents INTEGER,
+  valid_until TIMESTAMPTZ
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    c.id,
+    c.code,
+    c.name,
+    c.description,
+    c.discount_type,
+    c.discount_value,
+    c.minimum_order_cents,
+    c.valid_until
+  FROM coupons c
+  WHERE c.is_active = TRUE
+    AND c.valid_from <= NOW()
+    AND (c.valid_until IS NULL OR c.valid_until >= NOW())
+    AND (c.is_public = TRUE OR (p_user_id IS NOT NULL AND c.created_by = p_user_id))
+    AND (c.usage_limit IS NULL OR c.usage_count < c.usage_limit)
+  ORDER BY c.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Admin: create coupon
+CREATE OR REPLACE FUNCTION admin_create_coupon(
+  p_code TEXT,
+  p_name TEXT,
+  p_description TEXT,
+  p_discount_type TEXT,
+  p_discount_value INTEGER,
+  p_usage_limit INTEGER DEFAULT NULL,
+  p_usage_limit_per_user INTEGER DEFAULT 1,
+  p_valid_from TIMESTAMPTZ DEFAULT NOW(),
+  p_valid_until TIMESTAMPTZ DEFAULT NULL,
+  p_minimum_order_cents INTEGER DEFAULT 0,
+  p_applicable_categories UUID[] DEFAULT '{}',
+  p_applicable_products UUID[] DEFAULT '{}',
+  p_excluded_products UUID[] DEFAULT '{}',
+  p_is_active BOOLEAN DEFAULT TRUE,
+  p_is_public BOOLEAN DEFAULT TRUE
+)
+RETURNS UUID AS $$
+DECLARE
+  v_coupon_id UUID;
+BEGIN
+  -- Verify admin
+  IF NOT EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid()) THEN
+    RAISE EXCEPTION 'Admin access required';
+  END IF;
+
+  -- Check code uniqueness
+  IF EXISTS (SELECT 1 FROM coupons WHERE code ILIKE p_code) THEN
+    RAISE EXCEPTION 'Code coupon déjà utilisé';
+  END IF;
+
+  -- Validate discount type
+  IF p_discount_type NOT IN ('percentage', 'fixed_amount') THEN
+    RAISE EXCEPTION 'Type de réduction invalide';
+  END IF;
+
+  -- Validate percentage range
+  IF p_discount_type = 'percentage' AND (p_discount_value < 1 OR p_discount_value > 100) THEN
+    RAISE EXCEPTION 'Pourcentage doit être entre 1 et 100';
+  END IF;
+
+  INSERT INTO coupons (
+    code, name, description,
+    discount_type, discount_value,
+    usage_limit, usage_limit_per_user,
+    valid_from, valid_until,
+    minimum_order_cents,
+    applicable_categories, applicable_products, excluded_products,
+    is_active, is_public,
+    created_by
+  ) VALUES (
+    UPPER(p_code), p_name, p_description,
+    p_discount_type, p_discount_value,
+    p_usage_limit, p_usage_limit_per_user,
+    p_valid_from, p_valid_until,
+    p_minimum_order_cents,
+    p_applicable_categories, p_applicable_products, p_excluded_products,
+    p_is_active, p_is_public,
+    auth.uid()
+  ) RETURNING id INTO v_coupon_id;
+
+  RETURN v_coupon_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Admin: update coupon
+CREATE OR REPLACE FUNCTION admin_update_coupon(
+  p_coupon_id UUID,
+  p_name TEXT DEFAULT NULL,
+  p_description TEXT DEFAULT NULL,
+  p_discount_value INTEGER DEFAULT NULL,
+  p_usage_limit INTEGER DEFAULT NULL,
+  p_usage_limit_per_user INTEGER DEFAULT NULL,
+  p_valid_until TIMESTAMPTZ DEFAULT NULL,
+  p_minimum_order_cents INTEGER DEFAULT NULL,
+  p_applicable_categories UUID[] DEFAULT NULL,
+  p_applicable_products UUID[] DEFAULT NULL,
+  p_excluded_products UUID[] DEFAULT NULL,
+  p_is_active BOOLEAN DEFAULT NULL,
+  p_is_public BOOLEAN DEFAULT NULL
+)
+RETURNS BOOLEAN AS $$
+BEGIN
+  -- Verify admin
+  IF NOT EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid()) THEN
+    RAISE EXCEPTION 'Admin access required';
+  END IF;
+
+  UPDATE coupons SET
+    name = COALESCE(p_name, name),
+    description = COALESCE(p_description, description),
+    discount_value = COALESCE(p_discount_value, discount_value),
+    usage_limit = COALESCE(p_usage_limit, usage_limit),
+    usage_limit_per_user = COALESCE(p_usage_limit_per_user, usage_limit_per_user),
+    valid_until = COALESCE(p_valid_until, valid_until),
+    minimum_order_cents = COALESCE(p_minimum_order_cents, minimum_order_cents),
+    applicable_categories = COALESCE(p_applicable_categories, applicable_categories),
+    applicable_products = COALESCE(p_applicable_products, applicable_products),
+    excluded_products = COALESCE(p_excluded_products, excluded_products),
+    is_active = COALESCE(p_is_active, is_active),
+    is_public = COALESCE(p_is_public, is_public),
+    updated_at = NOW()
+  WHERE id = p_coupon_id;
+
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Admin: delete coupon (soft delete - set inactive)
+CREATE OR REPLACE FUNCTION admin_delete_coupon(p_coupon_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid()) THEN
+    RAISE EXCEPTION 'Admin access required';
+  END IF;
+
+  UPDATE coupons SET is_active = FALSE WHERE id = p_coupon_id;
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 7. GRANT PERMISSIONS
+-- ============================================================
+
+GRANT EXECUTE ON FUNCTION validate_coupon TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION record_coupon_usage TO authenticated;
+GRANT EXECUTE ON FUNCTION get_available_coupons TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION admin_create_coupon TO authenticated;
+GRANT EXECUTE ON FUNCTION admin_update_coupon TO authenticated;
+GRANT EXECUTE ON FUNCTION admin_delete_coupon TO authenticated;
+
+-- ============================================================
+-- 8. ROLLBACK
+-- ============================================================
+-- Run this section to undo migration 009
+/*
+DROP FUNCTION IF EXISTS admin_delete_coupon(UUID);
+DROP FUNCTION IF EXISTS admin_update_coupon(UUID, TEXT, TEXT, INTEGER, INTEGER, INTEGER, TIMESTAMPTZ, INTEGER, UUID[], UUID[], UUID[], BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS admin_create_coupon(TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, INTEGER, UUID[], UUID[], UUID[], BOOLEAN, BOOLEAN);
+DROP FUNCTION IF EXISTS get_available_coupons(UUID);
+DROP FUNCTION IF EXISTS record_coupon_usage(UUID, UUID, UUID, INTEGER);
+DROP FUNCTION IF EXISTS validate_coupon(TEXT, UUID, INTEGER, UUID[], UUID[]);
+
+DROP POLICY IF EXISTS "Public coupons readable" ON coupons;
+DROP POLICY IF EXISTS "Admins manage coupons" ON coupons;
+DROP POLICY IF EXISTS "Users view own coupon usages" ON coupon_usages;
+DROP POLICY IF EXISTS "Admins view all coupon usages" ON coupon_usages;
+DROP POLICY IF EXISTS "System inserts coupon usage" ON coupon_usages;
+
+DROP TRIGGER IF EXISTS update_coupons_updated_at ON coupons;
+
+DROP INDEX IF EXISTS idx_coupon_usages_order_id;
+DROP INDEX IF EXISTS idx_coupon_usages_user_id;
+DROP INDEX IF EXISTS idx_coupon_usages_coupon_id;
+DROP INDEX IF EXISTS idx_coupons_valid_dates;
+DROP INDEX IF EXISTS idx_coupons_active;
+DROP INDEX IF EXISTS idx_coupons_code;
+
+DROP TABLE IF EXISTS coupon_usages;
+DROP TABLE IF EXISTS coupons;
+*/
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 010_wishlist.sql ==========   & type supabase\migrations\010_wishlist.sql ) 
+ 
+========== 010_wishlist.sql ========== 
+-- ELBRO STORE - Migration 010: Wishlist System
+-- Adds wishlist table for user favorites
+
+-- ============================================================
+-- 1. CREATE WISHLIST TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS wishlist (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  variant_id UUID REFERENCES product_variants(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, product_id, variant_id)
+);
+
+-- Index for fast lookups
+CREATE INDEX IF NOT EXISTS idx_wishlist_user_id ON wishlist(user_id);
+CREATE INDEX IF NOT EXISTS idx_wishlist_product_id ON wishlist(product_id);
+
+-- ============================================================
+-- 2. RLS POLICIES
+-- ============================================================
+
+ALTER TABLE wishlist ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own wishlist
+CREATE POLICY "Users read own wishlist"
+  ON wishlist FOR SELECT
+  USING (user_id = auth.uid());
+
+-- Users can add to their own wishlist
+CREATE POLICY "Users insert own wishlist"
+  ON wishlist FOR INSERT
+  WITH CHECK (user_id = auth.uid());
+
+-- Users can remove from their own wishlist
+CREATE POLICY "Users delete own wishlist"
+  ON wishlist FOR DELETE
+  USING (user_id = auth.uid());
+
+-- Admins can read all wishlists
+CREATE POLICY "Admins read all wishlist"
+  ON wishlist FOR SELECT
+  USING (EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid()));
+
+-- ============================================================
+-- 3. HELPER FUNCTIONS
+-- ============================================================
+
+-- Check if product is in user's wishlist
+CREATE OR REPLACE FUNCTION is_in_wishlist(p_user_id UUID, p_product_id UUID, p_variant_id UUID DEFAULT NULL)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM wishlist
+  WHERE user_id = p_user_id
+    AND product_id = p_product_id
+    AND (p_variant_id IS NULL OR variant_id = p_variant_id);
+  RETURN v_count > 0;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get user's wishlist with product details
+CREATE OR REPLACE FUNCTION get_user_wishlist(p_user_id UUID)
+RETURNS TABLE (
+  id UUID,
+  product_id UUID,
+  variant_id UUID,
+  product_name TEXT,
+  product_slug TEXT,
+  product_price_cents INTEGER,
+  product_sale_price_cents INTEGER,
+  product_image TEXT,
+  variant_size TEXT,
+  variant_color TEXT,
+  variant_stock INTEGER,
+  variant_sku TEXT,
+  created_at TIMESTAMPTZ
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    w.id,
+    w.product_id,
+    w.variant_id,
+    p.name as product_name,
+    p.slug as product_slug,
+    p.price_cents as product_price_cents,
+    p.sale_price_cents as product_sale_price_cents,
+    pi.url as product_image,
+    v.size as variant_size,
+    v.color as variant_color,
+    v.stock as variant_stock,
+    v.sku as variant_sku,
+    w.created_at
+  FROM wishlist w
+  JOIN products p ON p.id = w.product_id
+  LEFT JOIN product_images pi ON pi.product_id = p.id AND pi.is_main = true
+  LEFT JOIN product_variants v ON v.id = w.variant_id
+  WHERE w.user_id = p_user_id
+  ORDER BY w.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Toggle wishlist (add if not exists, remove if exists)
+CREATE OR REPLACE FUNCTION toggle_wishlist(p_user_id UUID, p_product_id UUID, p_variant_id UUID DEFAULT NULL)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_exists BOOLEAN;
+BEGIN
+  SELECT is_in_wishlist(p_user_id, p_product_id, p_variant_id) INTO v_exists;
+
+  IF v_exists THEN
+    DELETE FROM wishlist
+    WHERE user_id = p_user_id
+      AND product_id = p_product_id
+      AND (p_variant_id IS NULL OR variant_id = p_variant_id);
+    RETURN FALSE; -- Removed
+  ELSE
+    INSERT INTO wishlist (user_id, product_id, variant_id)
+    VALUES (p_user_id, p_product_id, p_variant_id);
+    RETURN TRUE; -- Added
+  END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get wishlist count for user
+CREATE OR REPLACE FUNCTION get_wishlist_count(p_user_id UUID)
+RETURNS INTEGER AS $$
+DECLARE
+  v_count INTEGER;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM wishlist
+  WHERE user_id = p_user_id;
+  RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 4. GRANT PERMISSIONS
+-- ============================================================
+
+GRANT EXECUTE ON FUNCTION is_in_wishlist TO authenticated;
+GRANT EXECUTE ON FUNCTION get_user_wishlist TO authenticated;
+GRANT EXECUTE ON FUNCTION toggle_wishlist TO authenticated;
+GRANT EXECUTE ON FUNCTION get_wishlist_count TO authenticated;
+
+-- ============================================================
+-- 5. ROLLBACK
+-- ============================================================
+-- Run this section to undo migration 010
+-- ============================================================
+
+-- DROP FUNCTION IF EXISTS get_wishlist_count(UUID);
+-- DROP FUNCTION IF EXISTS toggle_wishlist(UUID, UUID, UUID);
+-- DROP FUNCTION IF EXISTS get_user_wishlist(UUID);
+-- DROP FUNCTION IF EXISTS is_in_wishlist(UUID, UUID, UUID);
+-- DROP TABLE IF EXISTS wishlist;
+C:\Users\HP\Desktop\ELBRO STORE\elbro-store>(echo.   & echo ========== 011_product_reviews.sql ==========   & type supabase\migrations\011_product_reviews.sql ) 
+ 
+========== 011_product_reviews.sql ========== 
+-- ELBRO STORE - Migration 011: Product Reviews System
+-- Adds reviews table for product ratings and reviews
+
+-- ============================================================
+-- 1. CREATE REVIEWS TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS product_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+  rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  title TEXT,
+  content TEXT,
+  verified_purchase BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, product_id, order_id)
+);
+
+-- Indexes for fast lookups
+CREATE INDEX IF NOT EXISTS idx_product_reviews_product_id ON product_reviews(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_user_id ON product_reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_product_reviews_order_id ON product_reviews(order_id);
+
+-- ============================================================
+-- 2. RLS POLICIES
+-- ============================================================
+
+ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can read reviews for published products
+CREATE POLICY "Anyone can read reviews"
+  ON product_reviews FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM products p
+      WHERE p.id = product_reviews.product_id
+      AND p.published = TRUE
+    )
+  );
+
+-- Authenticated users can create reviews for products they purchased
+-- (verified through order ownership)
+CREATE POLICY "Users can create reviews for purchased products"
+  ON product_reviews FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    AND (
+      -- User has a delivered order containing this product
+      EXISTS (
+        SELECT 1 FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        WHERE o.id = product_reviews.order_id
+        AND o.user_id = auth.uid()
+        AND o.status = 'DELIVERED'
+        AND oi.product_id = product_reviews.product_id
+      )
+      OR
+      -- Allow reviews without order_id for general feedback (non-verified)
+      (order_id IS NULL AND verified_purchase = FALSE)
+    )
+  );
+
+-- Users can update their own reviews
+CREATE POLICY "Users can update own reviews"
+  ON product_reviews FOR UPDATE
+  USING (user_id = auth.uid());
+
+-- Users can delete their own reviews
+CREATE POLICY "Users can delete own reviews"
+  ON product_reviews FOR DELETE
+  USING (user_id = auth.uid());
+
+-- Admins have full access
+CREATE POLICY "Admins manage reviews"
+  ON product_reviews FOR ALL
+  USING (
+    EXISTS (SELECT 1 FROM admin_users WHERE user_id = auth.uid())
+  );
+
+-- ============================================================
+-- 3. HELPER FUNCTIONS
+-- ============================================================
+
+-- Get product reviews with user info
+CREATE OR REPLACE FUNCTION get_product_reviews(p_product_id UUID, p_limit INTEGER DEFAULT 20, p_offset INTEGER DEFAULT 0)
+RETURNS TABLE (
+  id UUID,
+  product_id UUID,
+  user_id UUID,
+  order_id UUID,
+  rating INTEGER,
+  title TEXT,
+  content TEXT,
+  verified_purchase BOOLEAN,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ,
+  user_name TEXT,
+  user_avatar TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    pr.id,
+    pr.product_id,
+    pr.user_id,
+    pr.order_id,
+    pr.rating,
+    pr.title,
+    pr.content,
+    pr.verified_purchase,
+    pr.created_at,
+    pr.updated_at,
+    COALESCE(p.full_name, 'Utilisateur') as user_name,
+    NULL as user_avatar
+  FROM product_reviews pr
+  LEFT JOIN profiles p ON p.user_id = pr.user_id
+  WHERE pr.product_id = p_product_id
+  ORDER BY pr.created_at DESC
+  LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Get product review statistics
+CREATE OR REPLACE FUNCTION get_product_review_stats(p_product_id UUID)
+RETURNS TABLE (
+  total_reviews BIGINT,
+  average_rating NUMERIC(3,2),
+  rating_1 BIGINT,
+  rating_2 BIGINT,
+  rating_3 BIGINT,
+  rating_4 BIGINT,
+  rating_5 BIGINT,
+  verified_count BIGINT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    COUNT(*) as total_reviews,
+    ROUND(AVG(rating)::numeric, 2) as average_rating,
+    COUNT(*) FILTER (WHERE rating = 1) as rating_1,
+    COUNT(*) FILTER (WHERE rating = 2) as rating_2,
+    COUNT(*) FILTER (WHERE rating = 3) as rating_3,
+    COUNT(*) FILTER (WHERE rating = 4) as rating_4,
+    COUNT(*) FILTER (WHERE rating = 5) as rating_5,
+    COUNT(*) FILTER (WHERE verified_purchase = TRUE) as verified_count
+  FROM product_reviews
+  WHERE product_id = p_product_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Check if user can review a product (has delivered order with product)
+CREATE OR REPLACE FUNCTION can_user_review_product(p_user_id UUID, p_product_id UUID)
+RETURNS TABLE (
+  can_review BOOLEAN,
+  has_delivered_order BOOLEAN,
+  existing_review_id UUID
+) AS $$
+DECLARE
+  v_order_exists BOOLEAN;
+  v_review_id UUID;
+BEGIN
+  -- Check if user has a delivered order with this product
+  SELECT EXISTS (
+    SELECT 1 FROM orders o
+    JOIN order_items oi ON oi.order_id = o.id
+    WHERE o.user_id = p_user_id
+    AND o.status = 'DELIVERED'
+    AND oi.product_id = p_product_id
+  ) INTO v_order_exists;
+
+  -- Check if user already reviewed this product (without order constraint for general reviews)
+  SELECT id INTO v_review_id
+  FROM product_reviews
+  WHERE user_id = p_user_id
+  AND product_id = p_product_id
+  LIMIT 1;
+
+  RETURN QUERY SELECT
+    v_order_exists OR TRUE as can_review, -- Allow general reviews too
+    v_order_exists as has_delivered_order,
+    v_review_id as existing_review_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create review
+CREATE OR REPLACE FUNCTION create_product_review(
+  p_product_id UUID,
+  p_user_id UUID,
+  p_rating INTEGER,
+  p_title TEXT DEFAULT NULL,
+  p_content TEXT DEFAULT NULL,
+  p_order_id UUID DEFAULT NULL,
+  p_verified_purchase BOOLEAN DEFAULT FALSE
+)
+RETURNS UUID AS $$
+DECLARE
+  v_review_id UUID;
+BEGIN
+  INSERT INTO product_reviews (
+    product_id,
+    user_id,
+    order_id,
+    rating,
+    title,
+    content,
+    verified_purchase
+  ) VALUES (
+    p_product_id,
+    p_user_id,
+    p_order_id,
+    p_rating,
+    p_title,
+    p_content,
+    p_verified_purchase
+  ) RETURNING id INTO v_review_id;
+
+  RETURN v_review_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update review
+CREATE OR REPLACE FUNCTION update_product_review(
+  p_review_id UUID,
+  p_user_id UUID,
+  p_rating INTEGER DEFAULT NULL,
+  p_title TEXT DEFAULT NULL,
+  p_content TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_updated BOOLEAN := FALSE;
+BEGIN
+  UPDATE product_reviews
+  SET
+    rating = COALESCE(p_rating, rating),
+    title = COALESCE(p_title, title),
+    content = COALESCE(p_content, content),
+    updated_at = NOW()
+  WHERE id = p_review_id AND user_id = p_user_id;
+
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+  RETURN v_updated;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Delete review
+CREATE OR REPLACE FUNCTION delete_product_review(p_review_id UUID, p_user_id UUID)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_deleted BOOLEAN := FALSE;
+BEGIN
+  DELETE FROM product_reviews
+  WHERE id = p_review_id AND user_id = p_user_id;
+
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  RETURN v_deleted;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================
+-- 4. TRIGGERS
+-- ============================================================
+
+-- Update updated_at column
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS update_product_reviews_updated_at ON product_reviews;
+CREATE TRIGGER update_product_reviews_updated_at
+  BEFORE UPDATE ON product_reviews
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- 5. GRANT PERMISSIONS
+-- ============================================================
+
+GRANT EXECUTE ON FUNCTION get_product_reviews TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_product_review_stats TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION can_user_review_product TO authenticated;
+GRANT EXECUTE ON FUNCTION create_product_review TO authenticated;
+GRANT EXECUTE ON FUNCTION update_product_review TO authenticated;
+GRANT EXECUTE ON FUNCTION delete_product_review TO authenticated;
+
+-- ============================================================
+-- 6. ROLLBACK
+-- ============================================================
+-- Run this section to undo migration 011
+-- ============================================================
+
+-- DROP TRIGGER IF EXISTS update_product_reviews_updated_at ON product_reviews;
+-- DROP FUNCTION IF EXISTS update_product_review(UUID, UUID, INTEGER, TEXT, TEXT);
+-- DROP FUNCTION IF EXISTS create_product_review(UUID, UUID, INTEGER, TEXT, TEXT, UUID, BOOLEAN);
+-- DROP FUNCTION IF EXISTS can_user_review_product(UUID, UUID);
+-- DROP FUNCTION IF EXISTS get_product_review_stats(UUID);
+-- DROP FUNCTION IF EXISTS get_product_reviews(UUID, INTEGER, INTEGER);
+-- DROP TABLE IF EXISTS product_reviews;
