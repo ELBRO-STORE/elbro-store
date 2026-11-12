@@ -6,6 +6,7 @@ import { CartProvider } from './hooks/useCart';
 import { ToastProvider, Toaster } from './components/ui/Toast';
 import { MainLayout } from './components/layout/MainLayout';
 import { AdminLayout } from './components/layout/AdminLayout';
+import { AdminGuard } from './components/layout/AdminGuard';
 import './styles/globals.css';
 import './styles/hero.css';
 
@@ -30,7 +31,11 @@ const AdminCategories = lazy(() => import('./pages/admin/Categories').then(m => 
 const Profile = lazy(() => import('./pages/Profile').then(m => ({ default: m.Profile })));
 
 function Loading() {
-  return <div className="min-h-screen flex items-center justify-center">Chargement...</div>;
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      Chargement...
+    </div>
+  );
 }
 
 export default function App() {
@@ -53,11 +58,36 @@ export default function App() {
                   <Route path="connexion" element={<Login />} />
                   <Route path="inscription" element={<Login />} />
                   <Route path="profil" element={<Profile />} />
-                  <Route path="cgv" element={<div className="container mx-auto py-12 px-4"><h1 className="text-3xl font-bold mb-8">Conditions Générales de Vente</h1><div className="prose text-elbro-400">Contenu des CGV...</div></div>} />
-                  <Route path="confidentialite" element={<div className="container mx-auto py-12 px-4"><h1 className="text-3xl font-bold mb-8">Politique de Confidentialité</h1><div className="prose text-elbro-400">Contenu de la politique...</div></div>} />
+                  <Route
+                    path="cgv"
+                    element={
+                      <div className="container mx-auto py-12 px-4">
+                        <h1 className="text-3xl font-bold mb-8">Conditions Générales de Vente</h1>
+                        <div className="prose text-elbro-400">Contenu des CGV...</div>
+                      </div>
+                    }
+                  />
+                  <Route
+                    path="confidentialite"
+                    element={
+                      <div className="container mx-auto py-12 px-4">
+                        <h1 className="text-3xl font-bold mb-8">Politique de Confidentialité</h1>
+                        <div className="prose text-elbro-400">Contenu de la politique...</div>
+                      </div>
+                    }
+                  />
                 </Route>
 
-                <Route path="/admin" element={<AdminLayout><Outlet /></AdminLayout>}>
+                <Route
+                  path="/admin"
+                  element={
+                    <AdminGuard>
+                      <AdminLayout>
+                        <Outlet />
+                      </AdminLayout>
+                    </AdminGuard>
+                  }
+                >
                   <Route index element={<Navigate to="/admin/dashboard" replace />} />
                   <Route path="dashboard" element={<AdminDashboard />} />
                   <Route path="produits" element={<AdminProducts />} />

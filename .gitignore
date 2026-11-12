@@ -25,3 +25,28 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# Local backups and temporary files
+*.bak
+*.bak2
+*.tmp
+supabase/.temp/
+audit-results.txt
+check-admin.cjs
+backup-categories/
+
+# Accidental CMD output files
+/color
+/piece_name
+/size
+/dir
+/fc
+/findstr
+/git
+/more
+/offset
+/sum
+/type
+/color
+/piece_name
+/size
+/({
