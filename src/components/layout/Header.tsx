@@ -106,7 +106,7 @@ export function Header() {
 
             {/* Mobile Menu Button */}
             <button
-              className="md:hidden p-2 text-elbro-400 hover:text-elbro-100 transition-colors"
+              className="p-2 text-elbro-400 hover:text-elbro-100 transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-menu"
@@ -119,7 +119,7 @@ export function Header() {
 
         {/* Mobile Menu */}
         {mobileMenuOpen && (
-          <div id="mobile-menu" className="md:hidden py-4 border-t border-elbro-400/10 animate-slide-down">
+          <div id="mobile-menu" className="py-4 border-t border-elbro-400/10 animate-slide-down">
             <div className="flex flex-col gap-2">
               {navLinks.map((link) => (
                 <Link
