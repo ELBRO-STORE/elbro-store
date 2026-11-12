@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useReducer,
+  useRef,
   type ReactNode,
 } from 'react';
 import { supabase } from '../lib/supabase';
@@ -27,7 +28,6 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case 'SET_USER':
       return { ...state, user: action.payload };
-
     case 'SET_ADMIN':
       return {
         ...state,
@@ -35,10 +35,8 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         isAdmin: !!action.payload,
         isManager: !!action.payload,
       };
-
     case 'SET_LOADING':
       return { ...state, loading: action.payload };
-
     default:
       return state;
   }
@@ -70,29 +68,57 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
+  const requestId = useRef(0);
 
   const fetchAdminStatus = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+    const { data, error } = await supabase
+      .from('admin_users')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
 
-      if (error) {
-        console.error('Failed to load admin status:', error);
-        dispatch({ type: 'SET_ADMIN', payload: null });
-        return;
-      }
-
-      dispatch({ type: 'SET_ADMIN', payload: data });
-    } catch (error) {
+    if (error) {
       console.error('Failed to load admin status:', error);
+      return null;
+    }
+
+    return data as AdminUser | null;
+  };
+
+  const updateSession = async (user: User | null) => {
+    const currentRequest = ++requestId.current;
+
+    dispatch({ type: 'SET_LOADING', payload: true });
+    dispatch({ type: 'SET_USER', payload: user });
+
+    if (!user) {
       dispatch({ type: 'SET_ADMIN', payload: null });
+      dispatch({ type: 'SET_LOADING', payload: false });
+      return;
+    }
+
+    try {
+      const admin = await fetchAdminStatus(user.id);
+
+      if (currentRequest !== requestId.current) return;
+
+      dispatch({ type: 'SET_ADMIN', payload: admin });
+    } catch (error) {
+      console.error('Authentication update failed:', error);
+
+      if (currentRequest === requestId.current) {
+        dispatch({ type: 'SET_ADMIN', payload: null });
+      }
+    } finally {
+      if (currentRequest === requestId.current) {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
     }
   };
 
   const refreshSession = async () => {
+    const currentRequest = ++requestId.current;
+
     dispatch({ type: 'SET_LOADING', payload: true });
 
     try {
@@ -102,60 +128,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } = await supabase.auth.getSession();
 
       if (error) throw error;
+      if (currentRequest !== requestId.current) return;
 
-      if (session?.user) {
-        dispatch({ type: 'SET_USER', payload: session.user });
-        await fetchAdminStatus(session.user.id);
+      const user = session?.user ?? null;
+      dispatch({ type: 'SET_USER', payload: user });
+
+      if (user) {
+        const admin = await fetchAdminStatus(user.id);
+
+        if (currentRequest !== requestId.current) return;
+
+        dispatch({ type: 'SET_ADMIN', payload: admin });
       } else {
-        dispatch({ type: 'SET_USER', payload: null });
         dispatch({ type: 'SET_ADMIN', payload: null });
       }
     } catch (error) {
       console.error('Failed to refresh session:', error);
-      dispatch({ type: 'SET_USER', payload: null });
-      dispatch({ type: 'SET_ADMIN', payload: null });
+
+      if (currentRequest === requestId.current) {
+        dispatch({ type: 'SET_USER', payload: null });
+        dispatch({ type: 'SET_ADMIN', payload: null });
+      }
     } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
+      if (currentRequest === requestId.current) {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
     }
   };
 
   useEffect(() => {
     let mounted = true;
 
-    const initialize = async () => {
-      await refreshSession();
-    };
-
-    initialize();
-
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
 
-      const updateAuth = async () => {
-        dispatch({ type: 'SET_LOADING', payload: true });
+      const user = session?.user ?? null;
 
-        try {
-          if (session?.user) {
-            dispatch({ type: 'SET_USER', payload: session.user });
-            await fetchAdminStatus(session.user.id);
-          } else {
-            dispatch({ type: 'SET_USER', payload: null });
-            dispatch({ type: 'SET_ADMIN', payload: null });
-          }
-        } finally {
-          if (mounted) {
-            dispatch({ type: 'SET_LOADING', payload: false });
-          }
+      // Defer database requests until after the auth callback finishes.
+      window.setTimeout(() => {
+        if (mounted) {
+          void updateSession(user);
         }
-      };
-
-      void updateAuth();
+      }, 0);
     });
+
+    void refreshSession();
 
     return () => {
       mounted = false;
+      requestId.current++;
       subscription.unsubscribe();
     };
   }, []);
@@ -169,15 +192,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
       });
 
-      if (error) {
-        dispatch({ type: 'SET_LOADING', payload: false });
-        return { error };
-      }
+      if (error) return { error };
 
       if (data.user) {
-        dispatch({ type: 'SET_USER', payload: data.user });
-        await fetchAdminStatus(data.user.id);
-
         try {
           const { data: profile } = await supabase
             .from('profiles')
@@ -210,8 +227,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? error
           : new Error('Une erreur de connexion est survenue'),
       };
-    } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
@@ -227,12 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error, data } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            full_name: fullName,
-            phone,
-          },
-        },
+        options: { data: { full_name: fullName, phone } },
       });
 
       if (error) return { error };
@@ -283,6 +293,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await supabase.auth.signOut();
     } finally {
+      requestId.current++;
       dispatch({ type: 'SET_USER', payload: null });
       dispatch({ type: 'SET_ADMIN', payload: null });
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -295,7 +306,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
     });
-
     return { error };
   };
 
