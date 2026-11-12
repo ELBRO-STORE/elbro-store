@@ -1,3 +1,4 @@
+
 export type Json =
   | string
   | number
@@ -5,6 +6,7 @@ export type Json =
   | null
   | { [key: string]: Json | undefined }
   | Json[];
+
 export interface CartItem {
   id: string;
   productId: string;
@@ -47,7 +49,6 @@ export interface Product {
   published: boolean;
   created_at: string;
   updated_at: string;
-  // Relations
   category?: Category;
   images?: ProductImage[];
   variants?: ProductVariant[];
@@ -95,12 +96,17 @@ export interface Order {
   google_sheets_order_id: string | null;
   created_at: string;
   updated_at: string;
-  // Relations
   items?: OrderItem[];
   [key: string]: unknown;
 }
 
-export type OrderStatus = 'NEW' | 'CONFIRMED' | 'PREPARING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+export type OrderStatus =
+  | 'NEW'
+  | 'CONFIRMED'
+  | 'PREPARING'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'CANCELLED';
 
 export interface OrderItem {
   id: string;
@@ -114,7 +120,6 @@ export interface OrderItem {
   unit_price_cents: number;
   subtotal_cents: number;
   created_at: string;
-  // Relations
   product?: Product;
   variant?: ProductVariant;
   [key: string]: unknown;
@@ -505,7 +510,7 @@ export interface Database {
           id?: string;
           code: string;
           name: string;
-          description?: string | null;
+          description: string | null;
           discount_type: 'percentage' | 'fixed_amount';
           discount_value: number;
           usage_limit?: number | null;
@@ -929,13 +934,24 @@ export interface Database {
         };
         Returns: boolean;
       };
+      admin_list_users: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          email: string | null;
+          full_name: string | null;
+          phone: string | null;
+          city: string | null;
+          address: string | null;
+          created_at: string;
+          admin_role: string | null;
+        }[];
+      };
     };
   };
-  // Internal marker for Supabase type inference (used by supabase-js)
-  // This must be at the root level of Database, not nested under 'public'
   __InternalSupabase: {
     PostgrestVersion: '12.2.12 (3e9f9a2)';
   };
 }
-// Export Database type for use in services
+
 export type DatabaseWithInternals = Database;
