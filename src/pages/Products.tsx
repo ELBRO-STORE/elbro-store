@@ -268,7 +268,7 @@ function ProductCard({ product }: { product: any }) {
     : null;
 
   return (
-    <Link to={`/produit/${product.slug}`} className="group block">
+    <Link to={`/produits/${product.slug}`} className="group block">
       <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-elbro-900 border border-elbro-400/10">
         {mainImage?.url ? (
           <img
