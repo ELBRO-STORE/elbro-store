@@ -7,8 +7,8 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import type { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import type { User } from '@supabase/supabase-js';
 import type { AdminUser } from '../types/database';
 
 interface AuthState {
@@ -28,6 +28,7 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
     case 'SET_USER':
       return { ...state, user: action.payload };
+
     case 'SET_ADMIN':
       return {
         ...state,
@@ -35,8 +36,10 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         isAdmin: !!action.payload,
         isManager: !!action.payload,
       };
+
     case 'SET_LOADING':
       return { ...state, loading: action.payload };
+
     default:
       return state;
   }
@@ -68,9 +71,16 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
-  const requestId = useRef(0);
 
-  const fetchAdminStatus = async (userId: string) => {
+  const requestId = useRef(0);
+  const mountedRef = useRef(false);
+  const activeUserId = useRef<string | null>(null);
+  const processedSession = useRef<string | null>(null);
+  const adminCache = useRef<Map<string, AdminUser | null>>(new Map());
+
+  const fetchAdminStatus = async (
+    userId: string
+  ): Promise<AdminUser | null> => {
     const { data, error } = await supabase
       .from('admin_users')
       .select('*')
@@ -79,14 +89,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) {
       console.error('Failed to load admin status:', error);
-      return null;
+      throw error;
     }
 
     return data as AdminUser | null;
   };
 
-  const updateSession = async (user: User | null) => {
+  const processSession = async (
+    session: Session | null,
+    force = false
+  ): Promise<void> => {
+    if (!mountedRef.current) return;
+
+    const user = session?.user ?? null;
+    const userId = user?.id ?? null;
+
+    const sessionKey = userId
+      ? `${userId}:${session?.access_token ?? ''}`
+      : 'no-session';
+
+    if (!force && processedSession.current === sessionKey) {
+      return;
+    }
+
+    processedSession.current = sessionKey;
+
     const currentRequest = ++requestId.current;
+
+    activeUserId.current = userId;
 
     dispatch({ type: 'SET_LOADING', payload: true });
     dispatch({ type: 'SET_USER', payload: user });
@@ -98,96 +128,99 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const admin = await fetchAdminStatus(user.id);
+      let admin = adminCache.current.get(user.id);
 
-      if (currentRequest !== requestId.current) return;
+      if (admin === undefined || force) {
+        admin = await fetchAdminStatus(user.id);
+        adminCache.current.set(user.id, admin);
+      }
+
+      if (
+        !mountedRef.current ||
+        currentRequest !== requestId.current ||
+        activeUserId.current !== user.id
+      ) {
+        return;
+      }
 
       dispatch({ type: 'SET_ADMIN', payload: admin });
     } catch (error) {
       console.error('Authentication update failed:', error);
 
-      if (currentRequest === requestId.current) {
+      if (
+        mountedRef.current &&
+        currentRequest === requestId.current &&
+        activeUserId.current === user.id
+      ) {
         dispatch({ type: 'SET_ADMIN', payload: null });
       }
     } finally {
-      if (currentRequest === requestId.current) {
+      if (
+        mountedRef.current &&
+        currentRequest === requestId.current
+      ) {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     }
   };
 
-  const refreshSession = async () => {
-    const currentRequest = ++requestId.current;
+  const refreshSession = async (): Promise<void> => {
+    // Uses the current in-memory auth state.
+    // It does not manually request another token refresh.
+    const { data, error } = await supabase.auth.getSession();
 
-    dispatch({ type: 'SET_LOADING', payload: true });
-
-    try {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession();
-
-      if (error) throw error;
-      if (currentRequest !== requestId.current) return;
-
-      const user = session?.user ?? null;
-      dispatch({ type: 'SET_USER', payload: user });
-
-      if (user) {
-        const admin = await fetchAdminStatus(user.id);
-
-        if (currentRequest !== requestId.current) return;
-
-        dispatch({ type: 'SET_ADMIN', payload: admin });
-      } else {
-        dispatch({ type: 'SET_ADMIN', payload: null });
-      }
-    } catch (error) {
+    if (error) {
       console.error('Failed to refresh session:', error);
-
-      if (currentRequest === requestId.current) {
-        dispatch({ type: 'SET_USER', payload: null });
-        dispatch({ type: 'SET_ADMIN', payload: null });
-      }
-    } finally {
-      if (currentRequest === requestId.current) {
-        dispatch({ type: 'SET_LOADING', payload: false });
-      }
+      return;
     }
+
+    await processSession(data.session, true);
   };
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mountedRef.current) return;
 
-      const user = session?.user ?? null;
+      if (event === 'TOKEN_REFRESHED') {
+        // The user identity did not change; no need to fetch admin again.
+        return;
+      }
 
-      // Defer database requests until after the auth callback finishes.
+      if (event === 'USER_UPDATED') {
+        adminCache.current.delete(session?.user.id ?? '');
+      }
+
+      if (event === 'SIGNED_OUT') {
+        adminCache.current.clear();
+        processedSession.current = 'no-session';
+      }
+
+      // Defer work until Supabase finishes its auth callback.
       window.setTimeout(() => {
-        if (mounted) {
-          void updateSession(user);
-        }
+        if (!mountedRef.current) return;
+        void processSession(session);
       }, 0);
     });
 
-    void refreshSession();
-
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       requestId.current++;
       subscription.unsubscribe();
     };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (
+    email: string,
+    password: string
+  ): Promise<{ error: Error | null }> => {
     dispatch({ type: 'SET_LOADING', payload: true });
 
     try {
-      const { error, data } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -196,11 +229,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data.user) {
         try {
-          const { data: profile } = await supabase
+          const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('phone')
             .eq('id', data.user.id)
             .maybeSingle();
+
+          if (profileError) {
+            console.error('Failed to load profile phone:', profileError);
+          }
 
           if (profile?.phone) {
             const { error: linkError } = await supabase.rpc(
@@ -223,10 +260,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: null };
     } catch (error) {
       return {
-        error: error instanceof Error
-          ? error
-          : new Error('Une erreur de connexion est survenue'),
+        error:
+          error instanceof Error
+            ? error
+            : new Error('Une erreur de connexion est survenue'),
       };
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
@@ -235,14 +275,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string,
     fullName?: string,
     phone?: string
-  ) => {
+  ): Promise<{ error: Error | null }> => {
     dispatch({ type: 'SET_LOADING', payload: true });
 
     try {
       const { error, data } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName, phone } },
+        options: {
+          data: {
+            full_name: fullName,
+            phone,
+          },
+        },
       });
 
       if (error) return { error };
@@ -250,11 +295,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.user) {
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert({
-            id: data.user.id,
-            full_name: fullName,
-            phone,
-          } as any);
+          .upsert(
+            {
+              id: data.user.id,
+              full_name: fullName,
+              phone,
+            } as any,
+            { onConflict: 'id' }
+          );
 
         if (profileError) {
           console.error('Failed to create profile:', profileError);
@@ -278,22 +326,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: null };
     } catch (error) {
       return {
-        error: error instanceof Error
-          ? error
-          : new Error('Une erreur d’inscription est survenue'),
+        error:
+          error instanceof Error
+            ? error
+            : new Error('Une erreur d’inscription est survenue'),
       };
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
-  const signOut = async () => {
+  const signOut = async (): Promise<void> => {
     dispatch({ type: 'SET_LOADING', payload: true });
 
     try {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error('Sign out failed:', error);
+      }
     } finally {
       requestId.current++;
+      activeUserId.current = null;
+      processedSession.current = 'no-session';
+      adminCache.current.clear();
+
       dispatch({ type: 'SET_USER', payload: null });
       dispatch({ type: 'SET_ADMIN', payload: null });
       dispatch({ type: 'SET_LOADING', payload: false });
@@ -302,10 +359,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = signIn;
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
     });
+
     return { error };
   };
 
