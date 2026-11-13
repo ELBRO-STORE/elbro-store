@@ -1,46 +1,127 @@
+
+import { useMemo } from 'react';
 import { Hero3D } from '../components/hero/Hero3D';
 import { Container } from '../components/layout/Container';
 import { Button } from '../components/ui';
-import { useFeaturedProducts, useBestSellers, useCategories } from '../hooks/useProducts';
+import {
+  useFeaturedProducts,
+  useBestSellers,
+  useCategories,
+  useProducts,
+} from '../hooks/useProducts';
 import { formatPrice } from '../lib/utils';
-import { Link } from 'react-router-dom';
-import { ArrowRight, Package, Truck, Shield, RefreshCw, Headphones } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  ArrowRight,
+  Package,
+  Truck,
+  Shield,
+  RefreshCw,
+  Headphones,
+} from 'lucide-react';
 import type { ProductPiece } from '../components/hero/Hero3D';
 
-const HERO_PIECES: ProductPiece[] = [
-  { key: 'outfit', name: 'ELBRO PREMIUM OUTFIT', price: 49900, image: '', alt: 'Look complet ELBRO', inStock: true },
-  { key: 'cap', name: 'Casquette Premium', price: 9900, image: '', alt: 'Casquette Premium - Noir', inStock: true },
-  { key: 'hoodie', name: 'Hoodie Premium', price: 24900, image: '', alt: 'Hoodie Premium - Noir', inStock: true },
-  { key: 'pants', name: 'Pantalon Cargo Premium', price: 19900, image: '', alt: 'Pantalon Cargo Premium - Noir', inStock: true },
-  { key: 'shoes', name: 'Sneakers Premium', price: 19900, image: '', alt: 'Sneakers Premium - Noir', inStock: true },
-];
+const HERO_PRODUCTS = [
+  { key: 'outfit', slug: 'elbro-premium-outfit' },
+  { key: 'cap', slug: 'hoodie-premium' },
+  { key: 'hoodie', slug: 'JACKET' },
+  { key: 'shoes', slug: 'Chaussures' },
+  { key: 'pants', slug: 'ACCESSOIR' },
+] as const;
 
 export function Home() {
-  const { products: featuredProducts, loading: featuredLoading } = useFeaturedProducts(4);
-  const { products: bestSellers, loading: bestSellersLoading } = useBestSellers(4);
+  const navigate = useNavigate();
+
+  const { products: allProducts } = useProducts({ limit: 100 });
+  const { products: featuredProducts, loading: featuredLoading } =
+    useFeaturedProducts(4);
+  const { products: bestSellers, loading: bestSellersLoading } =
+    useBestSellers(4);
   const { categories, loading: categoriesLoading } = useCategories();
 
-  const handleBuyClick = (pieceKey: string) => {
-    // Navigate to product detail or open cart
-    // For now, scroll to products section
-    const product = HERO_PIECES.find(p => p.key === pieceKey);
-    if (product) {
-      // In a real app, this would open a modal or navigate to product page
-      console.log('Buy clicked:', product.name);
-    }
+  const heroPieces = useMemo<ProductPiece[]>(() => {
+    return HERO_PRODUCTS.flatMap(({ key, slug }) => {
+      const product = allProducts.find(
+        (item) => item.slug.toLowerCase() === slug.toLowerCase()
+      );
+
+      if (!product) return [];
+
+      const mainImage =
+        product.images?.find((image) => image.is_main) ||
+        product.images?.[0];
+
+      const price =
+        product.sale_price_cents &&
+        product.sale_price_cents < product.price_cents
+          ? product.sale_price_cents
+          : product.price_cents;
+
+      const inStock =
+        product.variants?.some(
+          (variant) => Number(variant.stock_quantity ?? 0) > 0
+        ) ?? false;
+
+      return [
+        {
+          key,
+          name: product.name,
+          price,
+          image: mainImage?.url || '',
+          alt: mainImage?.alt_text || product.name,
+          inStock,
+        },
+      ];
+    });
+  }, [allProducts]);
+
+  const handleBuyClick = (pieceKey: ProductPiece['key']) => {
+    const heroProduct = HERO_PRODUCTS.find(
+      (item) => item.key === pieceKey
+    );
+
+    if (!heroProduct) return;
+
+    const product = allProducts.find(
+      (item) =>
+        item.slug.toLowerCase() === heroProduct.slug.toLowerCase()
+    );
+
+    if (!product) return;
+
+    navigate(`/produit/${product.slug}`);
   };
 
   const benefits = [
-    { icon: Truck, title: 'Livraison gratuite', desc: 'Dès 500 MAD d\'achat partout au Maroc' },
-    { icon: RefreshCw, title: 'Retours 30 jours', desc: 'Satisfait ou remboursé, sans tracas' },
-    { icon: Shield, title: 'Paiement sécurisé', desc: 'Transactions 100% sécurisées' },
-    { icon: Headphones, title: 'Support 7j/7', desc: 'Équipe dédiée à votre écoute' },
+    {
+      icon: Truck,
+      title: 'Livraison gratuite',
+      desc: "Dès 500 MAD d'achat partout au Maroc",
+    },
+    {
+      icon: RefreshCw,
+      title: 'Retours 30 jours',
+      desc: 'Satisfait ou remboursé, sans tracas',
+    },
+    {
+      icon: Shield,
+      title: 'Paiement sécurisé',
+      desc: 'Transactions 100% sécurisées',
+    },
+    {
+      icon: Headphones,
+      title: 'Support 7j/7',
+      desc: 'Équipe dédiée à votre écoute',
+    },
   ];
 
   return (
     <main>
       {/* 3D Hero */}
-      <Hero3D pieces={HERO_PIECES} onBuyClick={handleBuyClick} />
+      <Hero3D
+        pieces={heroPieces}
+        onBuyClick={handleBuyClick}
+      />
 
       {/* Benefits */}
       <section className="py-12 lg:py-16 bg-elbro-900 border-y border-elbro-400/10">
@@ -49,10 +130,17 @@ export function Home() {
             {benefits.map((benefit) => (
               <div key={benefit.title} className="text-center">
                 <div className="mx-auto mb-4 p-3 rounded-xl bg-elbro-950 border border-elbro-400/10 w-12 h-12 flex items-center justify-center">
-                  <benefit.icon className="w-6 h-6 text-elbro-100" aria-hidden="true" />
+                  <benefit.icon
+                    className="w-6 h-6 text-elbro-100"
+                    aria-hidden="true"
+                  />
                 </div>
-                <h3 className="font-semibold text-elbro-100 mb-1">{benefit.title}</h3>
-                <p className="text-sm text-elbro-400">{benefit.desc}</p>
+                <h3 className="font-semibold text-elbro-100 mb-1">
+                  {benefit.title}
+                </h3>
+                <p className="text-sm text-elbro-400">
+                  {benefit.desc}
+                </p>
               </div>
             ))}
           </div>
@@ -67,8 +155,11 @@ export function Home() {
               <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-elbro-100">
                 Nos coups de cœur
               </h2>
-              <p className="text-elbro-400 mt-1">Sélection premium choisie pour vous</p>
+              <p className="text-elbro-400 mt-1">
+                Sélection premium choisie pour vous
+              </p>
             </div>
+
             <Link
               to="/produits?featured=true"
               className="hidden md:inline-flex items-center gap-2 text-elbro-400 hover:text-elbro-100 font-medium transition-colors"
@@ -79,8 +170,8 @@ export function Home() {
 
           {(featuredLoading || bestSellersLoading || categoriesLoading) ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="animate-pulse">
+              {[...Array(4)].map((_, index) => (
+                <div key={index} className="animate-pulse">
                   <div className="aspect-[3/4] bg-elbro-900 rounded-xl border border-elbro-400/10" />
                   <div className="mt-3 h-4 bg-elbro-900 rounded w-3/4" />
                   <div className="mt-1 h-4 bg-elbro-900 rounded w-1/2" />
@@ -96,7 +187,9 @@ export function Home() {
             </div>
           ) : (
             <div className="text-center py-12">
-              <p className="text-elbro-400">Aucun produit mis en avant pour le moment</p>
+              <p className="text-elbro-400">
+                Aucun produit mis en avant pour le moment
+              </p>
             </div>
           )}
 
@@ -117,6 +210,7 @@ export function Home() {
           <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-elbro-100 text-center mb-10">
             Shop by Category
           </h2>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {categories.map((category) => (
               <Link
@@ -135,10 +229,16 @@ export function Home() {
                     <Package className="w-12 h-12 text-elbro-400 group-hover:text-elbro-100 transition-colors" />
                   </div>
                 )}
+
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
                 <div className="absolute bottom-0 left-0 right-0 p-6">
-                  <h3 className="text-lg font-semibold text-elbro-100">{category.name}</h3>
-                  <p className="text-sm text-elbro-400 mt-1">{category.description || 'Voir la collection'}</p>
+                  <h3 className="text-lg font-semibold text-elbro-100">
+                    {category.name}
+                  </h3>
+                  <p className="text-sm text-elbro-400 mt-1">
+                    {category.description || 'Voir la collection'}
+                  </p>
                 </div>
               </Link>
             ))}
@@ -154,8 +254,11 @@ export function Home() {
               <h2 className="text-2xl lg:text-3xl font-bold tracking-tight text-elbro-100">
                 Best-sellers
               </h2>
-              <p className="text-elbro-400 mt-1">Les pièces les plus populaires</p>
+              <p className="text-elbro-400 mt-1">
+                Les pièces les plus populaires
+              </p>
             </div>
+
             <Link
               to="/produits?sort=best_seller"
               className="hidden md:inline-flex items-center gap-2 text-elbro-400 hover:text-elbro-100 font-medium transition-colors"
@@ -167,12 +270,18 @@ export function Home() {
           {bestSellers.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {bestSellers.map((product) => (
-                <ProductCard key={product.id} product={product} badge="Best-seller" />
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  badge="Best-seller"
+                />
               ))}
             </div>
           ) : (
             <div className="text-center py-12">
-              <p className="text-elbro-400">Aucun best-seller pour le moment</p>
+              <p className="text-elbro-400">
+                Aucun best-seller pour le moment
+              </p>
             </div>
           )}
 
@@ -194,23 +303,39 @@ export function Home() {
             <h2 className="text-2xl lg:text-4xl font-bold tracking-tight text-elbro-100 mb-4">
               Rejoignez la famille ELBRO
             </h2>
+
             <p className="text-elbro-400 text-lg mb-8">
               Inscrivez-vous pour recevoir nos nouveautés, offres exclusives et actualités en avant-première.
             </p>
-            <form className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto" onSubmit={(e) => e.preventDefault()}>
+
+            <form
+              className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
+              onSubmit={(event) => event.preventDefault()}
+            >
               <input
                 type="email"
                 placeholder="Votre email"
                 className="flex-1 px-4 py-3 bg-elbro-950 border border-elbro-400/20 rounded-lg text-elbro-100 placeholder-elbro-400 focus:outline-none focus:ring-2 focus:ring-elbro-100"
                 required
               />
-              <Button type="submit" size="lg" className="whitespace-nowrap">
+
+              <Button
+                type="submit"
+                size="lg"
+                className="whitespace-nowrap"
+              >
                 S'inscrire
               </Button>
             </form>
+
             <p className="text-xs text-elbro-400 mt-4">
               En vous inscrivant, vous acceptez notre{' '}
-              <a href="/confidentialite" className="underline hover:text-elbro-100">politique de confidentialité</a>
+              <a
+                href="/confidentialite"
+                className="underline hover:text-elbro-100"
+              >
+                politique de confidentialité
+              </a>
               . Désabonnement possible à tout moment.
             </p>
           </div>
@@ -220,14 +345,28 @@ export function Home() {
   );
 }
 
-function ProductCard({ product, badge }: { product: any; badge?: string }) {
-  const mainImage = product.images?.find((img: any) => img.is_main) || product.images?.[0];
-  const price = product.sale_price_cents && product.sale_price_cents < product.price_cents
-    ? product.sale_price_cents
-    : product.price_cents;
-  const oldPrice = product.sale_price_cents && product.sale_price_cents < product.price_cents
-    ? product.price_cents
-    : null;
+function ProductCard({
+  product,
+  badge,
+}: {
+  product: any;
+  badge?: string;
+}) {
+  const mainImage =
+    product.images?.find((image: any) => image.is_main) ||
+    product.images?.[0];
+
+  const price =
+    product.sale_price_cents &&
+    product.sale_price_cents < product.price_cents
+      ? product.sale_price_cents
+      : product.price_cents;
+
+  const oldPrice =
+    product.sale_price_cents &&
+    product.sale_price_cents < product.price_cents
+      ? product.price_cents
+      : null;
 
   return (
     <Link to={`/produit/${product.slug}`} className="group block">
@@ -243,25 +382,34 @@ function ProductCard({ product, badge }: { product: any; badge?: string }) {
             <Package className="w-12 h-12 text-elbro-400" />
           </div>
         )}
+
         {badge && (
           <span className="absolute top-3 left-3 px-2 py-1 text-xs font-medium bg-elbro-100 text-elbro-950 rounded-full">
             {badge}
           </span>
         )}
+
         {oldPrice && (
           <span className="absolute top-3 right-3 px-2 py-1 text-xs font-medium bg-red-500/90 text-white rounded-full">
             -{Math.round((1 - price / oldPrice) * 100)}%
           </span>
         )}
       </div>
+
       <div className="mt-3">
         <h3 className="font-medium text-elbro-100 group-hover:text-elbro-400 transition-colors line-clamp-1">
           {product.name}
         </h3>
+
         <div className="flex items-center gap-2 mt-1">
-          <span className="font-semibold text-elbro-100">{formatPrice(price)}</span>
+          <span className="font-semibold text-elbro-100">
+            {formatPrice(price)}
+          </span>
+
           {oldPrice && (
-            <span className="text-sm text-elbro-400 line-through">{formatPrice(oldPrice)}</span>
+            <span className="text-sm text-elbro-400 line-through">
+              {formatPrice(oldPrice)}
+            </span>
           )}
         </div>
       </div>
