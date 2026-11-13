@@ -87,7 +87,7 @@ export function ProductDetail() {
     if (!product || !selectedSize || !selectedColor || !isInStock) return;
     handleAddToCart();
     // Navigate to checkout
-    window.location.href = '/checkout';
+    window.location.href = '/commande';
   };
 
   if (loading) {
